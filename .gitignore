@@ -1,0 +1,19 @@
+# deps & builds
+node_modules/
+dist/
+.build/
+.next/
+.vercel/
+coverage/
+*.log
+
+# env & OS cruft
+.env
+.env.*local
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
