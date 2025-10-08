@@ -1,0 +1,8 @@
+/* Make the canvas fill the window, remove default margins */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: #000;
+  overflow: hidden;          /* no scrollbars over the globe */
+}
+* { box-sizing: border-box; }
