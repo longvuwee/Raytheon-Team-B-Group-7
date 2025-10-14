@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@openglobus/og':
+        specifier: ^0.27.14
+        version: 0.27.14
       react:
         specifier: ^19.1.1
         version: 19.1.1
@@ -353,6 +356,9 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@openglobus/og@0.27.14':
+    resolution: {integrity: sha512-zPvVVLzIlSVGOwqwT+lioVoDwhV4aqXnRZ2kojLDYmSul4OVhNWhOSRyYPRzm2TxdEu6/L82jZEp22AIVPcmHg==}
 
   '@rolldown/pluginutils@1.0.0-beta.38':
     resolution: {integrity: sha512-N/ICGKleNhA5nc9XXQG/kkKHJ7S55u0x0XUJbbkmdCnFuoRkM1Il12q9q0eX19+M7KKUEPw/daUPIRnxhcxAIw==}
@@ -1217,6 +1223,8 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@openglobus/og@0.27.14': {}
 
   '@rolldown/pluginutils@1.0.0-beta.38': {}
 

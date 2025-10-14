@@ -17,3 +17,8 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+
+**/package.json
+**/package-lock.json
+**/yarn.lock
+**/pnpm-lock.yaml
