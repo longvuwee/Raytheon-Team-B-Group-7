@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Globe as GlobeReact } from "@openglobus/openglobus-react";
-import { OpenStreetMap, GlobusRgbTerrain, XYZ } from "@openglobus/og";
+import { Globe, OpenStreetMap, XYZ } from "@openglobus/og";
+import FireCastLogo from "./assets/FireCast_LOGO.png"; // Import logo image
 import "./index.css";
 import "./App.css";
 
@@ -32,7 +32,7 @@ export default function App() {
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
-      hour12: false
+      hour12: false,
     }).format(d);
 
   const fmtTZShort = (d) =>
@@ -40,84 +40,89 @@ export default function App() {
       .formatToParts(d)
       .find((p) => p.type === "timeZoneName")?.value || "CT";
 
-  // ======= GLOBE & LAYERS =======
+  // ======= GLOBE (imperative) =======
   const globeRef = useRef(null);
-
-  const terrain = useMemo(
-    () =>
-      new GlobusRgbTerrain(null, {
-        // If you host a real terrain tileset, provide `url` here.
-        plainGridSize: 32
-      }),
-    []
-  );
-
-  const osmLayer = useMemo(
-    () =>
-      new OpenStreetMap(null, {
-        isBaseLayer: true,
-        attribution: "© OpenStreetMap contributors"
-      }),
-    []
-  );
-
-  const satLayer = useMemo(
-    () =>
-      new XYZ("ESRI World Imagery", {
-        isBaseLayer: true,
-        url:
-          "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attribution:
-          "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community"
-      }),
-    []
-  );
-
+  const [globus, setGlobus] = useState(null);
   const [base, setBase] = useState("OSM");
-  const baseLayers = useMemo(
-    () => (base === "OSM" ? [osmLayer] : [satLayer]),
-    [base, osmLayer, satLayer]
-  );
 
-  const START_VIEW = { lon: -119.74978, lat: 37.082052, height: 2_000_000 };
+  const US_VIEW = { lon: -98.583, lat: 39.833, height: 4_500_000 };
 
-  // Keep canvas flush with viewport
   useEffect(() => {
-    const onResize = () =>
+    if (!globeRef.current) return;
+
+    // Base layers
+    const osm = new OpenStreetMap();
+    const sat = new XYZ("ESRI World Imagery", {
+      isBaseLayer: true,
+      url:
+        "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      attribution:
+        "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+    });
+
+    // Create globe
+    const globeInstance = new Globe({
+      target: globeRef.current,
+      name: "Earth",
+      layers: [osm], // start with OSM
+      resourcesSrc: "/og-res",
+      fontsSrc: "/og-res/fonts",
+    });
+
+    setGlobus(globeInstance);
+
+    // Initial camera above U.S.
+    globeInstance.planet.camera.flyLonLat(US_VIEW);
+
+    // Handle resize
+    const handleResize = () => globeInstance.renderer.resize();
+    window.addEventListener("resize", handleResize);
+
+    // Keep canvas flush with viewport
+    const onResizeVH = () =>
       document.documentElement.style.setProperty("--vh", `${window.innerHeight}px`);
-    onResize();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    onResizeVH();
+    window.addEventListener("resize", onResizeVH);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("resize", onResizeVH);
+      globeInstance.destroy();
+    };
   }, []);
 
+  // Switch base layer
+  const switchLayer = (layerName) => {
+    if (!globus) return;
+    globus.layers.clear();
+    if (layerName === "OSM") {
+      globus.layers.add(new OpenStreetMap());
+    } else if (layerName === "SAT") {
+      globus.layers.add(
+        new XYZ("ESRI World Imagery", {
+          isBaseLayer: true,
+          url:
+            "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        })
+      );
+    }
+    setBase(layerName);
+  };
+
   // Camera controls
-  const getGlobe = () => globeRef.current;
-  const zoomIn = () => getGlobe()?.planet?.camera?.zoomIn();
-  const zoomOut = () => getGlobe()?.planet?.camera?.zoomOut();
-  const resetCompass = () => getGlobe()?.planet?.camera?.flyLonLat(START_VIEW);
+  const zoomIn = () => globus?.planet?.camera?.zoomIn();
+  const zoomOut = () => globus?.planet?.camera?.zoomOut();
+  const resetCompass = () => globus?.planet?.camera?.flyLonLat(US_VIEW);
 
   return (
     <div className="app-root">
-      <GlobeReact
-        ref={globeRef}
-        name="Earth"
-        terrain={terrain}
-        layers={baseLayers}
-        resourcesSrc="/og-res"
-        fontsSrc="/og-res/fonts"
-        cameraView={START_VIEW}
-        className="globe"
-      />
+      {/* ==== Globe canvas ==== */}
+      <div ref={globeRef} className="globe" />
 
-      {/* UI OVERLAY */}
+      {/* ==== UI OVERLAY ==== */}
       <div className="ui-overlay">
         {/* Logo */}
-        <img
-          src="/FireCast_LOGO.png"
-          alt="FireCast"
-          className="app-logo"
-          draggable="false"
-        />
+        <img src={FireCastLogo} alt="FireCast" className="app-logo" draggable="false" />
 
         {/* LEFT — Panel */}
         <div className="panel panel-left">
@@ -135,14 +140,7 @@ export default function App() {
             {["Predicted Spread", "Fire Perimeters", "MODIS Hotspots", "Wind Direction"].map(
               (label, i) => (
                 <label key={i} className="layer-item">
-                  <input
-                    type="checkbox"
-                    defaultChecked={i % 2 === 0}
-                    className="layer-checkbox"
-                    onChange={(e) => {
-                      // Hook up to actual layer visibility when you add them
-                    }}
-                  />
+                  <input type="checkbox" defaultChecked={i % 2 === 0} className="layer-checkbox" />
                   {label}
                 </label>
               )
@@ -153,14 +151,14 @@ export default function App() {
         {/* TOP-LEFT — Base layer switch */}
         <div className="base-switch">
           <button
-            onClick={() => setBase("OSM")}
+            onClick={() => switchLayer("OSM")}
             disabled={base === "OSM"}
             className={`btn ${base === "OSM" ? "btn-disabled" : ""}`}
           >
             OSM
           </button>
           <button
-            onClick={() => setBase("SAT")}
+            onClick={() => switchLayer("SAT")}
             disabled={base === "SAT"}
             className={`btn ${base === "SAT" ? "btn-disabled" : ""}`}
           >
@@ -200,12 +198,7 @@ export default function App() {
       {showIntro && (
         <div className="intro" onClick={() => setShowIntro(false)}>
           <div className="intro-card" onClick={(e) => e.stopPropagation()}>
-            <img
-              src="/FireCast_LOGO.png"
-              alt="FireCast"
-              className="intro-logo"
-              draggable="false"
-            />
+            <img src={FireCastLogo} alt="FireCast" className="intro-logo" draggable="false" />
             <h1 className="intro-title">Fire CastX</h1>
             <p className="intro-subtitle">Fires around the U.S in one place.</p>
             <div className="intro-cta">Click anywhere to continue</div>
