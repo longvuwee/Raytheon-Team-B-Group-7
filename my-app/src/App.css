@@ -1,0 +1,270 @@
+/* ===== App-level layout ===== */
+.app-root {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--app-bg, #242424);
+}
+
+.globe {
+  z-index: 1;
+}
+
+/* Overlay covers the globe for UI */
+.ui-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none; /* enable on child blocks */
+}
+
+/* ===== Branding ===== */
+.app-logo {
+  position: absolute;
+  top: 10px;
+  left: 20px;
+  width: 66px;
+  height: 66px;
+  user-select: none;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
+}
+
+/* ===== Panels ===== */
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 18px;
+  color: #f8f8f8;
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px) saturate(150%);
+  pointer-events: auto;
+}
+
+.panel-left {
+  position: absolute;
+  top: 50%;
+  left: 24px;
+  transform: translateY(-50%);
+  width: 300px;
+  padding: 22px 20px;
+}
+
+.panel-right {
+  position: absolute;
+  top: 50%;
+  right: 24px;
+  transform: translateY(-50%);
+  width: 240px;
+  padding: 18px 16px;
+  backdrop-filter: blur(8px);
+}
+
+.panel-title {
+  margin: 0 0 10px 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+  text-shadow: 0 0 8px rgba(255, 90, 36, 0.4);
+}
+
+.panel-subtitle {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 500;
+  text-align: center;
+  color: var(--accent);
+  border-bottom: 1px solid var(--accent-faint);
+  padding-bottom: 6px;
+}
+
+.panel-text {
+  font-size: 14px;
+  opacity: 0.9;
+  margin: 0 0 6px;
+}
+
+.panel-text.subtle {
+  opacity: 0.8;
+  margin-bottom: 0;
+}
+
+/* ===== Layer list (right panel) ===== */
+.layer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.layer-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.layer-checkbox {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 2px solid var(--accent);
+  background-color: transparent;
+  transition: background-color 0.2s ease;
+}
+.layer-checkbox:checked {
+  background-color: var(--accent);
+}
+
+/* ===== Base layer switch (top-left) ===== */
+.base-switch {
+  position: absolute;
+  top: 10px;
+  left: 100px;
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+/* ===== Buttons ===== */
+.btn {
+  padding: 10px;
+  background-color: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.btn.icon {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 40px;
+  text-align: center;
+}
+.btn-disabled,
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ===== Top-right controls ===== */
+.controls-right {
+  position: absolute;
+  top: 20px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+/* ===== Timeline (bottom) ===== */
+.timeline {
+  position: absolute;
+  left: 80px;
+  right: 80px;
+  bottom: 30px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  pointer-events: auto;
+}
+
+.timeline-label {
+  color: #ddd;
+  font-size: 12px;
+}
+
+.timeline-range {
+  flex: 1;
+  height: 4px;
+  accent-color: var(--accent-strong);
+}
+
+.timeline-current {
+  min-width: 200px;
+  text-align: center;
+  color: #fff;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  padding: 6px 10px;
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+  white-space: nowrap;
+}
+
+/* ===== Intro overlay ===== */
+.intro {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  z-index: 1000;
+  transition: opacity 320ms ease;
+}
+
+.intro-card {
+  width: min(720px, 92vw);
+  padding: 42px 28px;
+  border-radius: 16px;
+  background: rgba(15, 15, 15, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e8e8e8;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+}
+
+.intro-logo {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 12px;
+  user-select: none;
+}
+
+.intro-title {
+  margin: 0 0 8px 0;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+.intro-subtitle {
+  margin: 0;
+  opacity: 0.9;
+}
+
+.intro-cta {
+  margin-top: 18px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+/* ===== Responsive niceties ===== */
+@media (max-width: 920px) {
+  .panel-left {
+    left: 16px;
+    width: 280px;
+  }
+  .panel-right {
+    right: 16px;
+    width: 220px;
+  }
+  .base-switch {
+    left: 88px;
+  }
+  .timeline {
+    left: 60px;
+    right: 60px;
+  }
+}

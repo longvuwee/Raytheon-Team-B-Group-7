@@ -1,0 +1,119 @@
+:root {
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+
+/* button styling from openglobus examples */
+/* 
+.og-compass-button {
+    bottom: 153px;
+    right: 12px;
+}
+.og-button {
+    display: flex
+;
+    align-items: center;
+    align-content: center;
+    padding: 2px;
+    flex-direction: row;
+    cursor: default;
+    justify-content: center;
+    color: var(--grey6);
+    border-radius: 4px;
+}
+.og-map-button {
+    height: 40px;
+    width: 40px;
+    position: absolute;
+    outline: none;
+    cursor: pointer;
+    z-index: 10;
+    background-color: var(--grey5);
+}
+*/
+
+
+/* Zoom buttons: stack in the top-right */
+.og-zoomin-button,
+.og-zoomout-button {
+  position: absolute ;
+  right: 10px ;
+  z-index: 10;
+}
+.og-zoomin-button { top: 10px ; }
+.og-zoomout-button { top: 56px ; } /* put just below + */
+
+/* Compass: bottom-right */
+.og-compass-button {
+  position: absolute ;
+  right: 20px ;
+  bottom: 20px ;
+  top: auto ;
+  left: auto ;
+  z-index: 10;
+}
+
+/* Scale bar: bottom-left (above attribution) */
+.og-scale-container {
+  position: absolute ;
+  left: 20px ;
+  bottom: 20px ;
+  z-index: 10;
+}
+
+/* Attribution: keep visible along bottom-left */
+.og-attribution {
+  position: absolute ;
+  left: 8px ;
+  bottom: 4px ;
+  z-index: 5;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Reposition OpenGlobus coordinates to bottom right */
+.og-coordinates {
+  position: absolute !important;
+  bottom: 10px !important;
+  left: auto !important;
+  right: 10px !important;
+  top: auto !important;
+  background-color: rgba(0,0,0,0.5) !important;
+  color: white !important;
+  padding: 5px !important;
+  border-radius: 3px !important;
+}
+
+/* ===== App-wide variables used by App.css ===== */
+:root {
+  --app-bg: #242424;
+  --panel-bg: rgba(15, 15, 15, 0.45);
+  --panel-border: rgba(255, 255, 255, 0.12);
+  --accent: #ff844a;
+  --accent-strong: #ff5a24;
+  --accent-faint: rgba(255, 120, 0, 0.25);
+}
