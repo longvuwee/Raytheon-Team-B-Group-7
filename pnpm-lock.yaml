@@ -4,36 +4,10 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  react: 18.3.1
+  react-dom: 18.3.1
+
 importers:
 
-  .:
-    dependencies:
-      '@openglobus/og':
-        specifier: ^0.27.12
-        version: 0.27.12
-      '@openglobus/openglobus-react':
-        specifier: ^0.4.5
-        version: 0.4.5
-
-packages:
-
-  '@openglobus/og@0.27.12':
-    resolution: {integrity: sha512-3ntwz3sVz38NXjlvAhw+ZMfTivbkqceQIaxYbCrCDfKx1DduEfUJnBQ86YhOycGJJlQEfY0Uk+PyUd06razB/A==}
-
-  '@openglobus/openglobus-react@0.4.5':
-    resolution: {integrity: sha512-2pANual0BStudb7YR+w4MnraKzkkM3BwezV5hmtoTwe3t0V9DWG6qaakxqTvWjhRI7xk7AqYXeP3xJSKWu1oSg==}
-
-  react@19.1.1:
-    resolution: {integrity: sha512-w8nqGImo45dmMIfljjMwOGtbmC/mk4CMYhWIicdSflH91J9TyCyczcPFXJzrZ/ZXcgGRFeP6BU0BEJTw6tZdfQ==}
-    engines: {node: '>=0.10.0'}
-
-snapshots:
-
-  '@openglobus/og@0.27.12': {}
-
-  '@openglobus/openglobus-react@0.4.5':
-    dependencies:
-      '@openglobus/og': 0.27.12
-      react: 19.1.1
-
-  react@19.1.1: {}
+  .: {}
