@@ -19,3 +19,23 @@ Thumbs.db
 !.vscode/settings.json
 
 
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore environment and OS files
+.env
+.DS_Store
+
+# Ignore IDE/project settings
+.vscode/
+.idea/
+
+# Ignore Python virtual environments
+.venv/
+venv/
+
+# Ignore large local data
+*.geojson
