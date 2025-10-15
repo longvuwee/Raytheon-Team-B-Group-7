@@ -13,55 +13,72 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Make sure the OG container is a positioning context */
-.og-inner {
-  position: relative !important;
-}
 
-/* Coordinates: top-left */
-.og-coordinates {
-  position: absolute !important;
-  top: 10px !important;
-  left: 10px !important;
-  z-index: 10;
+/* button styling from openglobus examples */
+/* 
+.og-compass-button {
+    bottom: 153px;
+    right: 12px;
 }
+.og-button {
+    display: flex
+;
+    align-items: center;
+    align-content: center;
+    padding: 2px;
+    flex-direction: row;
+    cursor: default;
+    justify-content: center;
+    color: var(--grey6);
+    border-radius: 4px;
+}
+.og-map-button {
+    height: 40px;
+    width: 40px;
+    position: absolute;
+    outline: none;
+    cursor: pointer;
+    z-index: 10;
+    background-color: var(--grey5);
+}
+*/
+
 
 /* Zoom buttons: stack in the top-right */
 .og-zoomin-button,
 .og-zoomout-button {
-  position: absolute !important;
-  right: 10px !important;
+  position: absolute ;
+  right: 10px ;
   z-index: 10;
 }
-.og-zoomin-button { top: 10px !important; }
-.og-zoomout-button { top: 56px !important; } /* put just below + */
+.og-zoomin-button { top: 10px ; }
+.og-zoomout-button { top: 56px ; } /* put just below + */
 
 /* Compass: bottom-right */
 .og-compass-button {
-  position: absolute !important;
-  right: 20px !important;
-  bottom: 20px !important;
-  top: auto !important;
-  left: auto !important;
+  position: absolute ;
+  right: 20px ;
+  bottom: 20px ;
+  top: auto ;
+  left: auto ;
   z-index: 10;
 }
 
 /* Scale bar: bottom-left (above attribution) */
 .og-scale-container {
-  position: absolute !important;
-  left: 20px !important;
-  bottom: 20px !important;
+  position: absolute ;
+  left: 20px ;
+  bottom: 20px ;
   z-index: 10;
 }
 
 /* Attribution: keep visible along bottom-left */
 .og-attribution {
-  position: absolute !important;
-  left: 8px !important;
-  bottom: 4px !important;
+  position: absolute ;
+  left: 8px ;
+  bottom: 4px ;
   z-index: 5;
 }
-
 
 body {
   margin: 0;
@@ -76,4 +93,27 @@ html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
+}
+
+/* Reposition OpenGlobus coordinates to bottom right */
+.og-coordinates {
+  position: absolute !important;
+  bottom: 10px !important;
+  left: auto !important;
+  right: 10px !important;
+  top: auto !important;
+  background-color: rgba(0,0,0,0.5) !important;
+  color: white !important;
+  padding: 5px !important;
+  border-radius: 3px !important;
+}
+
+/* ===== App-wide variables used by App.css ===== */
+:root {
+  --app-bg: #242424;
+  --panel-bg: rgba(15, 15, 15, 0.45);
+  --panel-border: rgba(255, 255, 255, 0.12);
+  --accent: #ff844a;
+  --accent-strong: #ff5a24;
+  --accent-faint: rgba(255, 120, 0, 0.25);
 }

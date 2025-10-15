@@ -1,34 +1,29 @@
-import React, { useMemo, useRef, useEffect, useState } from "react";
-import { Globe } from "@openglobus/openglobus-react";
-import { OpenStreetMap, GlobusRgbTerrain } from "@openglobus/og";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Globe as GlobeReact } from "@openglobus/openglobus-react";
+import { OpenStreetMap, GlobusRgbTerrain, XYZ } from "@openglobus/og";
+import "./index.css";
+import "./App.css";
 
 export default function App() {
-  // 1) Intro overlay starts visible
+  // ======= INTRO OVERLAY =======
   const [showIntro, setShowIntro] = useState(true);
 
-  // === Timeline (Dallas time): now -> +24h in hourly steps ===
+  // ======= TIMELINE (Dallas time) =======
   const TZ = "America/Chicago";
   const HOUR_MS = 3600_000;
 
-  // snap "now" to the top of the hour
   const now = useMemo(() => {
     const d = new Date();
     d.setMinutes(0, 0, 0);
     return d;
   }, []);
-
   const end = useMemo(() => new Date(now.getTime() + 24 * HOUR_MS), [now]);
-
-  // 0..24 (inclusive) so the right edge is exactly +24h
-  const maxIdx = 24;
-  const [sliderIdx, setSliderIdx] = useState(0); // start at "now"
-
+  const [sliderIdx, setSliderIdx] = useState(0);
   const selectedDate = useMemo(
     () => new Date(now.getTime() + sliderIdx * HOUR_MS),
     [now, sliderIdx]
   );
 
-  // format helpers (Dallas time)
   const fmtDateTime = (d) =>
     new Intl.DateTimeFormat("en-US", {
       timeZone: TZ,
@@ -37,26 +32,22 @@ export default function App() {
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
-      hour12: false,
+      hour12: false
     }).format(d);
 
   const fmtTZShort = (d) =>
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: TZ,
-      timeZoneName: "short",
-    })
+    new Intl.DateTimeFormat("en-US", { timeZone: TZ, timeZoneName: "short" })
       .formatToParts(d)
       .find((p) => p.type === "timeZoneName")?.value || "CT";
 
-  // 3) Globe layers
+  // ======= GLOBE & LAYERS =======
   const globeRef = useRef(null);
 
   const terrain = useMemo(
     () =>
       new GlobusRgbTerrain(null, {
-        url: "/og-res/tiles/{z}/{x}/{y}.png",
-        maxNativeZoom: 12,
-        plainGridSize: 32,
+        // If you host a real terrain tileset, provide `url` here.
+        plainGridSize: 32
       }),
     []
   );
@@ -64,15 +55,33 @@ export default function App() {
   const osmLayer = useMemo(
     () =>
       new OpenStreetMap(null, {
-        url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        subdomains: ["a", "b", "c"],
-        attribution: "© OpenStreetMap contributors",
         isBaseLayer: true,
+        attribution: "© OpenStreetMap contributors"
       }),
     []
   );
 
-  // Resize safety (keeps canvas flush with viewport)
+  const satLayer = useMemo(
+    () =>
+      new XYZ("ESRI World Imagery", {
+        isBaseLayer: true,
+        url:
+          "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attribution:
+          "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community"
+      }),
+    []
+  );
+
+  const [base, setBase] = useState("OSM");
+  const baseLayers = useMemo(
+    () => (base === "OSM" ? [osmLayer] : [satLayer]),
+    [base, osmLayer, satLayer]
+  );
+
+  const START_VIEW = { lon: -119.74978, lat: 37.082052, height: 2_000_000 };
+
+  // Keep canvas flush with viewport
   useEffect(() => {
     const onResize = () =>
       document.documentElement.style.setProperty("--vh", `${window.innerHeight}px`);
@@ -81,152 +90,57 @@ export default function App() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  // Camera controls
+  const getGlobe = () => globeRef.current;
+  const zoomIn = () => getGlobe()?.planet?.camera?.zoomIn();
+  const zoomOut = () => getGlobe()?.planet?.camera?.zoomOut();
+  const resetCompass = () => getGlobe()?.planet?.camera?.flyLonLat(START_VIEW);
+
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        width: "100vw",
-        height: "100vh",
-        overflow: "hidden",
-      }}
-    >
-      {/* GLOBE */}
-      <Globe
+    <div className="app-root">
+      <GlobeReact
         ref={globeRef}
         name="Earth"
         terrain={terrain}
-        layers={[osmLayer]}
+        layers={baseLayers}
         resourcesSrc="/og-res"
         fontsSrc="/og-res/fonts"
-        cameraView={{ lon: -98.583, lat: 39.833, height: 4_500_000 }}
-        style={{ zIndex: 1 }}
+        cameraView={START_VIEW}
+        className="globe"
       />
 
-      {/* UI LAYER (panels, timeline) */}
-      <div style={{ position: "absolute", inset: 0, zIndex: 10, pointerEvents: "none" }}>
+      {/* UI OVERLAY */}
+      <div className="ui-overlay">
         {/* Logo */}
         <img
           src="/FireCast_LOGO.png"
           alt="FireCast"
-          style={{
-            position: "absolute",
-            top: 10,
-            left: 20,
-            width: 66,
-            height: 66,
-            userSelect: "none",
-            pointerEvents: "none",
-            filter: "drop-shadow(0 2px 8px rgba(0,0,0,.5))",
-          }}
+          className="app-logo"
+          draggable="false"
         />
 
-        {/* LEFT — Orange Glass Panel */}
-        <div
-          style={{
-            position: "absolute",
-            top: "50%",
-            left: 24,
-            transform: "translateY(-50%)",
-            width: 300,
-            padding: "22px 20px",
-            background: "rgba(15, 15, 15, 0.45)",
-            border: "1px solid rgba(255, 120, 0, 0.35)",
-            borderRadius: 18,
-            boxShadow: "0 8px 32px rgba(0,0,0,0.45)",
-            backdropFilter: "blur(8px) saturate(150%)",
-            color: "#f8f8f8",
-            fontFamily: "Inter, sans-serif",
-            lineHeight: 1.5,
-            pointerEvents: "auto",
-            zIndex: 20,
-          }}
-        >
-          <h3
-            style={{
-              margin: "0 0 10px 0",
-              fontSize: 20,
-              fontWeight: 600,
-              color: "#ff844a",
-              letterSpacing: 0.5,
-              textShadow: "0 0 8px rgba(255,90,36,0.4)",
-            }}
-          >
-            Wildfire Prediction Panel
-          </h3>
-
-          <p style={{ fontSize: 14, opacity: 0.9 }}>
-            <strong>(MVP)</strong> Controls for MODIS wildfire layers, predictions, and
-            visualization.
+        {/* LEFT — Panel */}
+        <div className="panel panel-left">
+          <h3 className="panel-title">Wildfire Prediction Panel</h3>
+          <p className="panel-text">
+            <strong>(MVP)</strong> Controls for hotspots, perimeters, and forecasts.
           </p>
-          <p style={{ fontSize: 14, opacity: 0.8, marginBottom: 0 }}>
-            Use the timeline to explore hourly forecasts (Dallas time).
-          </p>
+          <p className="panel-text subtle">Use the timeline to explore hourly forecasts (Dallas time).</p>
         </div>
 
-        {/* RIGHT — Layers Box */}
-        <div
-          style={{
-            position: "absolute",
-            top: "50%",
-            right: 24,
-            transform: "translateY(-50%)",
-            width: 240,
-            padding: "18px 16px",
-            background: "rgba(15, 15, 15, 0.45)",
-            border: "1px solid rgba(255, 120, 0, 0.25)",
-            borderRadius: 14,
-            boxShadow: "0 8px 32px rgba(0,0,0,0.45)",
-            backdropFilter: "blur(8px)",
-            color: "#f8f8f8",
-            fontFamily: "Inter, sans-serif",
-            pointerEvents: "auto",
-            zIndex: 20,
-          }}
-        >
-          <h4
-            style={{
-              margin: "0 0 12px 0",
-              fontSize: 16,
-              fontWeight: 500,
-              textAlign: "center",
-              color: "#ff844a",
-              borderBottom: "1px solid rgba(255,120,0,0.25)",
-              paddingBottom: 6,
-            }}
-          >
-            Layers
-          </h4>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* RIGHT — Layers (sample toggles) */}
+        <div className="panel panel-right">
+          <h4 className="panel-subtitle">Layers</h4>
+          <div className="layer-list">
             {["Predicted Spread", "Fire Perimeters", "MODIS Hotspots", "Wind Direction"].map(
               (label, i) => (
-                <label
-                  key={i}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    fontSize: 14,
-                    cursor: "pointer",
-                  }}
-                >
+                <label key={i} className="layer-item">
                   <input
                     type="checkbox"
                     defaultChecked={i % 2 === 0}
-                    style={{
-                      appearance: "none",
-                      width: 16,
-                      height: 16,
-                      borderRadius: 4,
-                      border: "2px solid #ff844a",
-                      backgroundColor: i % 2 === 0 ? "#ff844a" : "transparent",
-                      transition: "background 0.2s",
-                    }}
+                    className="layer-checkbox"
                     onChange={(e) => {
-                      e.target.style.backgroundColor = e.target.checked
-                        ? "#ff844a"
-                        : "transparent";
+                      // Hook up to actual layer visibility when you add them
                     }}
                   />
                   {label}
@@ -236,97 +150,65 @@ export default function App() {
           </div>
         </div>
 
-        {/* BOTTOM — Timeline (hourly, now -> +24h; Dallas time) */}
-        <div
-          style={{
-            position: "absolute",
-            left: 80,
-            right: 80,
-            bottom: 30,
-            display: "flex",
-            alignItems: "center",
-            gap: 16,
-            pointerEvents: "auto",
-            zIndex: 20,
-          }}
-        >
-          <span style={{ color: "#ddd", fontSize: 12 }}>{fmtDateTime(now)}</span>
+        {/* TOP-LEFT — Base layer switch */}
+        <div className="base-switch">
+          <button
+            onClick={() => setBase("OSM")}
+            disabled={base === "OSM"}
+            className={`btn ${base === "OSM" ? "btn-disabled" : ""}`}
+          >
+            OSM
+          </button>
+          <button
+            onClick={() => setBase("SAT")}
+            disabled={base === "SAT"}
+            className={`btn ${base === "SAT" ? "btn-disabled" : ""}`}
+          >
+            SAT
+          </button>
+        </div>
 
+        {/* TOP-RIGHT — Zoom & Compass */}
+        <div className="controls-right">
+          <button onClick={zoomIn} className="btn icon">+</button>
+          <button onClick={zoomOut} className="btn icon">-</button>
+          <button onClick={resetCompass} className="btn icon" title="Reset view">🧭</button>
+        </div>
+
+        {/* BOTTOM — Timeline */}
+        <div className="timeline">
+          <span className="timeline-label">{fmtDateTime(now)}</span>
           <input
             type="range"
             min={0}
-            max={maxIdx}
+            max={24}
             step={1}
             value={sliderIdx}
             onChange={(e) => setSliderIdx(Number(e.target.value))}
-            style={{ flex: 1, height: 4, accentColor: "#ff5a24" }}
+            className="timeline-range"
             aria-label="Forecast time (hourly, Dallas time)"
           />
+          <span className="timeline-label">{fmtDateTime(end)}</span>
 
-          <span style={{ color: "#ddd", fontSize: 12 }}>{fmtDateTime(end)}</span>
-
-          <div
-            style={{
-              minWidth: 200,
-              textAlign: "center",
-              color: "#fff",
-              background: "rgba(15, 15, 15, 0.45)",
-              border: "1px solid rgba(255,120,0,.3)",
-              padding: "6px 10px",
-              borderRadius: 8,
-              backdropFilter: "blur(6px)",
-              whiteSpace: "nowrap",
-            }}
-            title={`${selectedDate.toISOString()}`}
-          >
+          <div className="timeline-current" title={selectedDate.toISOString()}>
             {fmtDateTime(selectedDate)} {fmtTZShort(selectedDate)}
           </div>
         </div>
       </div>
 
-      {/* INTRO OVERLAY (stays on top; does NOT move side boxes) */}
+      {/* INTRO OVERLAY */}
       {showIntro && (
-        <div
-          onClick={() => setShowIntro(false)}
-          style={{
-            position: "absolute",
-            inset: 0,
-            background: "rgba(0,0,0,.55)",
-            backdropFilter: "blur(3px)",
-            display: "grid",
-            placeItems: "center",
-            pointerEvents: "auto",
-            zIndex: 1000,
-            transition: "opacity 320ms ease",
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: "min(720px, 92vw)",
-              padding: "42px 28px",
-              borderRadius: 16,
-              background: "rgba(15, 15, 15, 0.45)",
-              border: "1px solid rgba(255,255,255,0.12)",
-              color: "#e8e8e8",
-              textAlign: "center",
-              boxShadow: "0 20px 60px rgba(0,0,0,.45)",
-              backdropFilter: "blur(8px)",
-            }}
-          >
+        <div className="intro" onClick={() => setShowIntro(false)}>
+          <div className="intro-card" onClick={(e) => e.stopPropagation()}>
             <img
               src="/FireCast_LOGO.png"
               alt="FireCast"
-              style={{ width: 56, height: 56, marginBottom: 12, userSelect: "none" }}
+              className="intro-logo"
               draggable="false"
             />
-            <h1 style={{ margin: "0 0 8px 0", fontWeight: 500, letterSpacing: 0.5 }}>
-              Fire CastX
-            </h1>
-            <p style={{ margin: 0, opacity: 0.9 }}>Fires around the U.S in one place.</p>
-            <div style={{ marginTop: 18, fontSize: 12, opacity: 0.85 }}>
-              Click anywhere to continue
-            </div>
+            <h1 className="intro-title">Fire CastX</h1>
+            <p className="intro-subtitle">Fires around the U.S in one place.</p>
+            <div className="intro-cta">Click anywhere to continue</div>
           </div>
         </div>
       )}
