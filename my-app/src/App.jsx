@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Globe, OpenStreetMap, XYZ } from "@openglobus/og";
+import { Globe, OpenStreetMap, XYZ, Bing } from "@openglobus/og";
 import FireCastLogo from "./assets/FireCast_LOGO.png"; // Import logo image
 import "./index.css";
 import "./App.css";
@@ -44,7 +44,8 @@ export default function App() {
   const globeRef = useRef(null);
   const [globus, setGlobus] = useState(null);
   const [base, setBase] = useState("OSM");
-
+  const osmRef = useRef(null);
+  const satRef = useRef(null);
   const US_VIEW = { lon: -98.583, lat: 39.833, height: 4_500_000 };
 
   useEffect(() => {
@@ -52,22 +53,21 @@ export default function App() {
 
     // Base layers
     const osm = new OpenStreetMap();
-    const sat = new XYZ("ESRI World Imagery", {
-      isBaseLayer: true,
-      url:
-        "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      attribution:
-        "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
-    });
+    const sat = new Bing();
 
     // Create globe
     const globeInstance = new Globe({
       target: globeRef.current,
       name: "Earth",
-      layers: [osm], // start with OSM
+      layers: [osm, sat], // start with OSM
       resourcesSrc: "/og-res",
       fontsSrc: "/og-res/fonts",
     });
+
+    osmRef.current = osm;
+    satRef.current = sat;
+    
+    sat.setVisibility(false); // start with OSM visible
 
     setGlobus(globeInstance);
 
@@ -93,18 +93,14 @@ export default function App() {
 
   // Switch base layer
   const switchLayer = (layerName) => {
-    if (!globus) return;
-    globus.layers.clear();
+    if (!globus || !osmRef.current || !satRef.current) return;
+
     if (layerName === "OSM") {
-      globus.layers.add(new OpenStreetMap());
+      osmRef.current.setVisibility(true);
+      satRef.current.setVisibility(false);
     } else if (layerName === "SAT") {
-      globus.layers.add(
-        new XYZ("ESRI World Imagery", {
-          isBaseLayer: true,
-          url:
-            "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        })
-      );
+      osmRef.current.setVisibility(false);
+      satRef.current.setVisibility(true);
     }
     setBase(layerName);
   };
@@ -164,13 +160,6 @@ export default function App() {
           >
             SAT
           </button>
-        </div>
-
-        {/* TOP-RIGHT — Zoom & Compass */}
-        <div className="controls-right">
-          <button onClick={zoomIn} className="btn icon">+</button>
-          <button onClick={zoomOut} className="btn icon">-</button>
-          <button onClick={resetCompass} className="btn icon" title="Reset view">🧭</button>
         </div>
 
         {/* BOTTOM — Timeline */}

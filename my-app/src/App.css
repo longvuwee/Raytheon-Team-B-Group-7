@@ -25,8 +25,8 @@
   position: absolute;
   top: 10px;
   left: 20px;
-  width: 66px;
-  height: 66px;
+  width: 40px;
+  height: 53px;
   user-select: none;
   pointer-events: none;
   filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
@@ -227,7 +227,7 @@
 }
 
 .intro-logo {
-  width: 65;
+  width: 75px;
   height: 100px;
   user-select: none;
 }

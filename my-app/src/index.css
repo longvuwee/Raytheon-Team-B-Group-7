@@ -13,57 +13,6 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-
-/* button styling from openglobus examples */
-/* 
-.og-compass-button {
-    bottom: 153px;
-    right: 12px;
-}
-.og-button {
-    display: flex
-;
-    align-items: center;
-    align-content: center;
-    padding: 2px;
-    flex-direction: row;
-    cursor: default;
-    justify-content: center;
-    color: var(--grey6);
-    border-radius: 4px;
-}
-.og-map-button {
-    height: 40px;
-    width: 40px;
-    position: absolute;
-    outline: none;
-    cursor: pointer;
-    z-index: 10;
-    background-color: var(--grey5);
-}
-*/
-
-
-/* Zoom buttons: stack in the top-right */
-.og-zoomin-button,
-.og-zoomout-button {
-  position: absolute ;
-  right: 10px ;
-  z-index: 10;
-}
-.og-zoomin-button { top: 10px ; }
-.og-zoomout-button { top: 56px ; } /* put just below + */
-
-/* Compass: bottom-right */
-.og-compass-button {
-  position: absolute ;
-  right: 20px ;
-  bottom: 20px ;
-  top: auto ;
-  left: auto ;
-  z-index: 10;
-}
-
 /* Scale bar: bottom-left (above attribution) */
 .og-scale-container {
   position: absolute ;
@@ -77,7 +26,8 @@
   position: absolute ;
   left: 8px ;
   bottom: 4px ;
-  z-index: 5;
+  z-index: -10; /* lower than overlay panels */
+  pointer-events: none; /* prevent blocking clicks */
 }
 
 body {
@@ -99,13 +49,32 @@ html, body, #root {
 .og-coordinates {
   position: absolute !important;
   bottom: 10px !important;
-  left: auto !important;
   right: 10px !important;
+  left: auto !important;
   top: auto !important;
-  background-color: rgba(0,0,0,0.5) !important;
+
+  display: inline-flex !important; /* keeps N/W inline */
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px; /* small spacing between lat/lon */
+
+  background-color: rgba(0, 0, 0, 0.5) !important;
   color: white !important;
-  padding: 5px !important;
-  border-radius: 3px !important;
+  padding: 6px 10px !important;
+  border-radius: 4px !important;
+  font-family: monospace !important;
+  white-space: nowrap !important; /* prevents text wrapping */
+  z-index: 1 !important; /* stays above globe, below overlays */
+}
+
+.og-scale-container{
+  z-index: 1 !important; /* stays above globe, below overlays */
+  position: absolute !important;
+  bottom: 15px !important;
+  right: 250px !important;
+  left: auto !important;
+  top: auto !important;
+  display: inline-flex !important;
 }
 
 /* ===== App-wide variables used by App.css ===== */
@@ -116,4 +85,62 @@ html, body, #root {
   --accent: #ff844a;
   --accent-strong: #ff5a24;
   --accent-faint: rgba(255, 120, 0, 0.25);
+}
+
+.og-compass-button,
+.og-zoomin-button,
+.og-zoomout-button {
+  position: absolute !important;
+  right: 10px !important;
+  width: 40px !important;
+  height: 40px !important;
+  border-radius: 10px !important;
+
+  /* matching the example: dark, glassy button tiles */
+  background: rgba(30, 30, 30, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+  backdrop-filter: blur(2px);
+
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  fill: #d3d3d3 !important;
+  z-index: 20 !important;
+  cursor: pointer;
+
+}
+
+/* Stack order (top → bottom) */
+.og-compass-button { 
+  top: 10px !important;   /* 🧭 Compass at very top-right */
+  left: auto !important; 
+  bottom: auto !important; 
+}
+.og-zoomin-button  { 
+  top: 64px !important;   /* ➕ directly below compass */
+}
+.og-zoomout-button { 
+  top: 118px !important;  /* ➖ below zoom-in */
+}
+
+
+.og-compass-button svg {
+  width: 24px !important;
+  height: 24px !important;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,0.4));
+}
+
+/* Hover feedback */
+.og-compass-button:hover,
+.og-zoomin-button:hover,
+.og-zoomout-button:hover {
+  background: rgba(35, 35, 35, 0.9) !important;
+}
+.og-compass-button:active,
+.og-zoomin-button:active,
+.og-zoomout-button:active {
+  transform: translateY(1px);
 }
