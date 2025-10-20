@@ -4,6 +4,21 @@ import FireCastLogo from "./assets/FireCast_LOGO.png"; // Import logo image
 import "./index.css";
 import "./App.css";
 
+import { Vector, Entity } from "@openglobus/og";
+
+function makeSquareIcon(size = 16, fill = "rgba(255,140,0,0.9)", stroke = "rgba(0,0,0,0.6)") {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = fill;
+  ctx.fillRect(0, 0, size, size);
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = Math.max(1, size * 0.1);
+  ctx.strokeRect(0, 0, size, size);
+  return canvas.toDataURL("image/png");
+}
+
 export default function App() {
   // ======= INTRO OVERLAY =======
   const [showIntro, setShowIntro] = useState(true);
@@ -40,13 +55,13 @@ export default function App() {
       .formatToParts(d)
       .find((p) => p.type === "timeZoneName")?.value || "CT";
 
-  // ======= GLOBE (imperative) =======
+  // ======= GLOBE =======
   const globeRef = useRef(null);
   const [globus, setGlobus] = useState(null);
   const [base, setBase] = useState("OSM");
   const osmRef = useRef(null);
   const satRef = useRef(null);
-  const US_VIEW = { lon: -98.583, lat: 39.833, height: 4_500_000 };
+  const US_VIEW = { lon: -120.583, lat: 35.263, height: 2000000 };
 
   useEffect(() => {
     if (!globeRef.current) return;
@@ -64,10 +79,14 @@ export default function App() {
       fontsSrc: "/og-res/fonts",
     });
 
+    const firesLayer = new Vector("Fires");
+    globeInstance.planet.addLayer(firesLayer);
+
     osmRef.current = osm;
     satRef.current = sat;
     
-    sat.setVisibility(false); // start with OSM visible
+    // start with OSM visible
+    sat.setVisibility(false);
 
     setGlobus(globeInstance);
 
@@ -105,10 +124,118 @@ export default function App() {
     setBase(layerName);
   };
 
-  // Camera controls
-  const zoomIn = () => globus?.planet?.camera?.zoomIn();
-  const zoomOut = () => globus?.planet?.camera?.zoomOut();
-  const resetCompass = () => globus?.planet?.camera?.flyLonLat(US_VIEW);
+  // load CSV and add square billboards that scale with zoom
+  useEffect(() => {
+    if (!globus) return;
+
+    const layer = globus.planet.getLayerByName("Fires");
+    if (!layer) return;
+
+    // create a square icon
+    const iconURL = makeSquareIcon(32);
+
+    // size mapping: camera height (meters) -> pixel size
+    // change these for preferred behavior
+    const MIN_PX = 3;
+    const MAX_PX = 22;
+    const scale = (height) => {
+      // heuristic: closer -> larger; farther -> smaller
+      // can tweak constants 0.00002 and exponent 0.65 to change scaling curve
+      const px = Math.pow(Math.max(height * 0.00002, 1), -0.65) * 40;
+      return Math.max(MIN_PX, Math.min(MAX_PX, px));
+    };
+
+    const entities = [];
+    let lastSizePx = 10;
+
+    // keep all billboards in sync with camera zoom
+    const syncSizes = () => {
+      const h = globus.planet.camera.getHeight();
+      const px = scale(h);
+      if (Math.abs(px - lastSizePx) < 0.5) return; // de-jitter
+      lastSizePx = px;
+      for (const e of entities) {
+        if (e.billboard) e.billboard.setSize(px, px); // ← 3rd segment here
+      }
+    };
+
+    // attach listeners so the symbols scale while zooming/panning
+    const cam = globus.planet.camera;
+    cam.events.on("move", syncSizes);
+    cam.events.on("zoom", syncSizes);
+    cam.events.on("moveend", syncSizes);
+
+    let isCancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch("/data/fires_labeled_with_perimeter_labels.csv");
+        const text = await res.text();
+
+        // --- CSV parsing ---
+        const lines = text.split(/\r?\n/).filter(Boolean);
+        if (!lines.length) return;
+
+        const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
+        const latIdx = headers.indexOf("latitude");
+        const lonIdx = headers.indexOf("longitude");
+
+        if (latIdx === -1 || lonIdx === -1) {
+          console.warn("CSV must have 'latitude' and 'longitude' headers.");
+          return;
+        }
+
+        // Add entities in small batches to keep UI responsive
+        const batchSize = 2000;
+        let i = 1;
+        while (i < lines.length) {
+          if (isCancelled) break;
+          const end = Math.min(i + batchSize, lines.length);
+
+          for (let j = i; j < end; j++) {
+            const row = lines[j].split(",");
+            const lat = parseFloat(row[latIdx]);
+            const lon = parseFloat(row[lonIdx]);
+            if (!isFinite(lat) || !isFinite(lon)) continue;
+
+            // Create an entity with a square billboard
+            const entity = new Entity({
+              lonlat: [lon, lat],
+              // store any attributes here if needed later e.g. brightness/confidence
+              properties: { },
+              billboard: {
+                src: iconURL,
+                size: [lastSizePx, lastSizePx],
+                // rotation: 0,
+                // visibility: true
+              }
+            });
+            layer.add(entity);
+
+            entities.push(entity);
+          }
+
+          i = end;
+          // allow paint + events
+          await new Promise((r) => requestAnimationFrame(r));
+        }
+
+        // initial sizing pass
+        syncSizes();
+      } catch (e) {
+        console.error("Failed to load fires CSV:", e);
+      }
+    })();
+
+    return () => {
+      isCancelled = true;
+      cam.events.off("move", syncSizes);
+      cam.events.off("zoom", syncSizes);
+      cam.events.off("moveend", syncSizes);
+      // Optional: clear entities if remount the layer
+      // layer.clear();  // uncomment if hot-reload a lot
+    };
+  }, [globus]);
 
   return (
     <div className="app-root">
