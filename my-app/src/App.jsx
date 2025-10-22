@@ -1,4 +1,88 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
+import "./index.css";
+import "./App.css";
+
+/* ---- Components ---- */
+import GlobeCanvas from "./components/GlobeCanvas";
+import FiresLayer from "./components/FiresLayer";
+import BaseSwitch from "./components/BaseSwitch";
+import Timeline from "./components/Timeline";
+import IntroOverlay from "./components/IntroOverlay";
+import LeftInfoPanel from "./components/LeftInfoPanel";
+import LayerPanel from "./components/LayerPanel";
+import Logo from "./components/Logo";
+
+/* ---- Hooks ---- */
+import useTimeline from "./hooks/useTimeline";
+
+export default function App() {
+  // Imperative handle to the globe component
+  const globeRef = useRef(null);
+
+  // Base-map toggle
+  const [base, setBase] = useState("OSM");
+
+  // Keep this stable so GlobeCanvas doesn't re-init
+  const initialView = useMemo(
+    () => ({ lon: -120.583, lat: 35.263, height: 2000000 }),
+    []
+  );
+
+  // Intro overlay
+  const [showIntro, setShowIntro] = useState(true);
+
+  // Timeline state (Dallas time)
+  const { tz, now, end, sliderIdx, setSliderIdx, selectedDate } =
+    useTimeline("America/Chicago");
+
+  const handleBaseChange = (name) => {
+    if (name === base) return;
+    setBase(name);
+    globeRef.current?.setBase?.(name); // call GlobeCanvas' imperative API
+  };
+
+  return (
+    <div className="app-root">
+      {/* === Globe === */}
+      <GlobeCanvas
+        ref={globeRef}
+        className="globe"
+        initialView={initialView}
+      />
+
+      {/* === Data Layers === */}
+      <FiresLayer globus={globeRef.current?.getGlobus?.()} />
+
+      {/* === Overlay UI === */}
+      <div className="ui-overlay">
+        <Logo />
+
+        <LeftInfoPanel />
+        <LayerPanel />
+
+        <BaseSwitch value={base} onChange={handleBaseChange} />
+
+        <Timeline
+          tz={tz}
+          now={now}
+          end={end}
+          sliderIdx={sliderIdx}
+          setSliderIdx={setSliderIdx}
+          selectedDate={selectedDate}
+        />
+      </div>
+
+      {/* === Intro === */}
+      <IntroOverlay
+        show={showIntro}
+        onClose={() => setShowIntro(false)}
+        Logo={<Logo className="intro-logo" />}
+      />
+    </div>
+  );
+}
+
+/*import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Globe, OpenStreetMap, XYZ, Bing } from "@openglobus/og";
 import FireCastLogo from "./assets/FireCast_LOGO.png"; // Import logo image
 import "./index.css";
@@ -239,15 +323,15 @@ export default function App() {
 
   return (
     <div className="app-root">
-      {/* ==== Globe canvas ==== */}
+      {/* ==== Globe canvas ==== *//*}
       <div ref={globeRef} className="globe" />
 
-      {/* ==== UI OVERLAY ==== */}
+      {/* ==== UI OVERLAY ==== *//*}
       <div className="ui-overlay">
-        {/* Logo */}
+        {/* Logo *//*}
         <img src={FireCastLogo} alt="FireCast" className="app-logo" draggable="false" />
 
-        {/* LEFT — Panel */}
+        {/* LEFT — Panel *//*}
         <div className="panel panel-left">
           <h3 className="panel-title">Wildfire Prediction Panel</h3>
           <p className="panel-text">
@@ -256,7 +340,7 @@ export default function App() {
           <p className="panel-text subtle">Use the timeline to explore hourly forecasts (Dallas time).</p>
         </div>
 
-        {/* RIGHT — Layers (sample toggles) */}
+        {/* RIGHT — Layers (sample toggles) *//*}
         <div className="panel panel-right">
           <h4 className="panel-subtitle">Layers</h4>
           <div className="layer-list">
@@ -271,7 +355,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* TOP-LEFT — Base layer switch */}
+        {/* TOP-LEFT — Base layer switch *//*}
         <div className="base-switch">
           <button
             onClick={() => switchLayer("OSM")}
@@ -289,7 +373,7 @@ export default function App() {
           </button>
         </div>
 
-        {/* BOTTOM — Timeline */}
+        {/* BOTTOM — Timeline *//*}
         <div className="timeline">
           <span className="timeline-label">{fmtDateTime(now)}</span>
           <input
@@ -310,7 +394,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* INTRO OVERLAY */}
+      {/* INTRO OVERLAY *//*}
       {showIntro && (
         <div className="intro" onClick={() => setShowIntro(false)}>
           <div className="intro-card" onClick={(e) => e.stopPropagation()}>
@@ -324,3 +408,4 @@ export default function App() {
     </div>
   );
 }
+*/

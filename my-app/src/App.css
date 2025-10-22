@@ -27,6 +27,7 @@
   left: 20px;
   width: 40px;
   height: 53px;
+  z-index: 20;
   user-select: none;
   pointer-events: none;
   filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
@@ -179,8 +180,9 @@
 }
 
 .timeline-label {
-  color: #ddd;
+  color: #fff;
   font-size: 12px;
+  font-weight: 400;
 }
 
 .timeline-range {
