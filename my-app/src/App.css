@@ -269,3 +269,57 @@
     right: 60px;
   }
 }
+
+/* --- Collapsible side panels --- */
+.collapsible {
+  position: absolute;
+  top: 240px;                 /* sits below your logo row */
+  width: 320px;
+  max-width: min(88vw, 360px);
+  transition: transform 280ms ease, opacity 200ms ease;
+  z-index: 1000;               /* above globe & timeline */
+  pointer-events: auto;
+}
+
+.collapsible .panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 18px;
+  color: #fff;
+  border-radius: 14px;
+  padding: 16px 16px 14px 16px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+  backdrop-filter: blur(4px);
+}
+
+.collapsible.left  { left: 20px; }
+.collapsible.right { right: 20px; }
+
+/* keep 44px “tab” visible when collapsed */
+.collapsible.left.collapsed  { transform: translateX(calc(-100% + 44px)); opacity: 0.98; }
+.collapsible.right.collapsed { transform: translateX(calc(100% - 44px));  opacity: 0.98; }
+.collapsible.open            { transform: translateX(0); opacity: 1; }
+
+/* Toggle tab — make sure it’s above everything */
+.panel-toggle {
+  position: absolute;
+  top: 10px;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 18px;
+  background: #ff6a00;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+  z-index: 10001;            /* ⬅️ above its own panel */
+}
+
+.panel-toggle.left  { right: -42px; }
+.panel-toggle.right { left:  -42px; }
+.panel-toggle:hover  { filter: brightness(1.05); }
+.panel-toggle:active { transform: translateY(1px); }
+
+.panel-title { margin: 0 0 10px; color: #ff6a00; }
