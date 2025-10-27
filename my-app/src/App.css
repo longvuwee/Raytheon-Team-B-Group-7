@@ -1,15 +1,18 @@
 /* ===== App-level layout ===== */
 .app-root {
   position: fixed;
-  inset: 0;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
   background: var(--app-bg, #242424);
 }
 
-.globe {
-  z-index: 1;
+.globe > .og-inner {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
 }
 
 /* Overlay covers the globe for UI */
