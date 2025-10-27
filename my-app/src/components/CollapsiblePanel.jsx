@@ -9,8 +9,14 @@ export default function CollapsiblePanel({
   const [open, setOpen] = useState(defaultOpen);
   const isLeft = side === "left";
 
+  // decide arrow direction so it points toward the map when open
+  // and points back toward the panel when closed
+  const arrow = isLeft
+    ? open ? "‹" : "›"
+    : open ? "›" : "‹";
+
+  // stop events from leaking to the globe canvas underneath
   const stop = (e) => {
-    // prevent the globe canvas (or any parent) from capturing the event
     e.stopPropagation();
   };
 
@@ -22,7 +28,6 @@ export default function CollapsiblePanel({
         isLeft ? "left" : "right",
       ].join(" ")}
       aria-expanded={open}
-      // ensure this layer accepts pointer events and doesn't bubble to the globe
       onMouseDown={stop}
       onPointerDown={stop}
       onClick={stop}
@@ -30,11 +35,10 @@ export default function CollapsiblePanel({
       onWheel={stop}
       style={{ pointerEvents: "auto" }}
     >
+      {/* floating pill toggle button */}
       <button
         type="button"
-        className={["panel-toggle", isLeft ? "left" : "right"].join(" ")}
-        onMouseDown={stop}
-        onPointerDown={stop}
+        className={["pill-toggle", isLeft ? "left" : "right"].join(" ")}
         onClick={(e) => {
           stop(e);
           setOpen((v) => !v);
@@ -42,7 +46,7 @@ export default function CollapsiblePanel({
         aria-label={open ? "Collapse panel" : "Expand panel"}
         title={open ? "Collapse" : "Expand"}
       >
-        {isLeft ? (open ? "‹" : "›") : open ? "›" : "‹"}
+        {arrow}
       </button>
 
       <div className="panel">

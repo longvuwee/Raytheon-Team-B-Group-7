@@ -276,53 +276,105 @@
 /* --- Collapsible side panels --- */
 .collapsible {
   position: absolute;
-  top: 240px;                 /* sits below your logo row */
+  top: 50%;
+  transform: translate(0, 50%);
   width: 320px;
   max-width: min(88vw, 360px);
   transition: transform 280ms ease, opacity 200ms ease;
-  z-index: 1000;               /* above globe & timeline */
+  z-index: 10000;              /* above globe & timeline */
   pointer-events: auto;
 }
 
+/* left vs right anchor */
+.collapsible.left  { left: 10px; }
+.collapsible.right { right: 10px; }
+
+/*
+Because we're using transform for BOTH:
+- vertical centering (translateY(-50%))
+- sliding horizontally (translateX(...))
+we have to define full transform per state.
+*/
+.collapsible.open.left {
+  transform: translate(0, -50%);
+  opacity: 1;
+}
+.collapsible.open.right {
+  transform: translate(0, -50%);
+  opacity: 1;
+}
+
+/* keep ~44px visible as a grab area when collapsed */
+.collapsible.collapsed.left {
+  transform: translate(-104%, -50%);
+  opacity: .9;
+}
+.collapsible.collapsed.right {
+  transform: translate(104%, -50%);
+  opacity: .9;
+}
+
+/* panel card (your existing glass card look) */
 .collapsible .panel {
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
-  border-radius: 18px;
-  color: #fff;
-  border-radius: 14px;
-  padding: 16px 16px 14px 16px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.35);
-  backdrop-filter: blur(4px);
-}
-
-.collapsible.left  { left: 20px; }
-.collapsible.right { right: 20px; }
-
-/* keep 44px “tab” visible when collapsed */
-.collapsible.left.collapsed  { transform: translateX(calc(-100% + 44px)); opacity: 0.98; }
-.collapsible.right.collapsed { transform: translateX(calc(100% - 44px));  opacity: 0.98; }
-.collapsible.open            { transform: translateX(0); opacity: 1; }
-
-/* Toggle tab — make sure it’s above everything */
-.panel-toggle {
-  position: absolute;
-  top: 10px;
-  width: 34px;
-  height: 34px;
-  border: none;
   border-radius: 8px;
-  cursor: pointer;
-  font-weight: 700;
-  font-size: 18px;
-  background: #ff6a00;
-  color: #fff;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
-  z-index: 10001;            /* ⬅️ above its own panel */
+  color: #f8f8f8;
+  padding: 16px 16px 14px 16px;
+  box-shadow: 0 0px 10px rgba(0,0,0,0.35);
+  backdrop-filter: blur(8px) saturate(150%);
+  min-width: 220px;
+  pointer-events: auto;
 }
 
-.panel-toggle.left  { right: -42px; }
-.panel-toggle.right { left:  -42px; }
-.panel-toggle:hover  { filter: brightness(1.05); }
-.panel-toggle:active { transform: translateY(1px); }
+/* pill toggle button that floats on the side, vertically centered */
+.pill-toggle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 48px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(48, 50, 54, 0.9); /* dark navy glass */
+  color: #fff;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 0px 10px rgba(0,0,0,0.6),
+    inset 0 1px 0 rgba(255,255,255,0.07);
+  cursor: pointer;
+  padding: 0;
+  z-index: 10001; /* above the panel so it's always clickable */
+}
 
-.panel-title { margin: 0 0 10px; color: #ff6a00; }
+/* dock the pill just outside the edge */
+.pill-toggle.left {
+  right: -38px;
+}
+.pill-toggle.right {
+  left: -38px;
+}
+
+.pill-toggle:hover {
+  background: rgba(18, 24, 36, 0.95);
+  opacity: 1;
+}
+
+.pill-toggle:active {
+  transform: translateY(calc(-50% + 1px));
+}
+
+/* keep panel title style consistent with rest of app */
+.panel-title {
+  margin: 0 0 10px 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+  text-shadow: 0 0 8px rgba(255, 90, 36, 0.4);
+}
