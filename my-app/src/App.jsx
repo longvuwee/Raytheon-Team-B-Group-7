@@ -11,11 +11,16 @@ import IntroOverlay from "./components/IntroOverlay";
 import LeftInfoPanel from "./components/LeftInfoPanel";
 import LayerPanel from "./components/LayerPanel";
 import Logo from "./components/Logo";
+import Sidebar from "./components/Sidebar";
 
 /* ---- Hooks ---- */
 import useTimeline from "./hooks/useTimeline";
 
 export default function App() {
+  //Sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const sidebarWidth = sidebarOpen ? 200: 55;
+
   // Imperative handle to the globe component
   const globeRef = useRef(null);
 
@@ -55,9 +60,10 @@ export default function App() {
 
       {/* === Overlay UI === */}
       <div className="ui-overlay">
-        <Logo />
+        <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen((v) => !v)}/>
 
-        <LeftInfoPanel />
+        <LeftInfoPanel offsetLeft={sidebarWidth} behindSidebar={false} />
+
         <LayerPanel />
 
         <BaseSwitch value={base} onChange={handleBaseChange} />

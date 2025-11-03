@@ -170,7 +170,7 @@
   pointer-events: auto;
 }
 
-/* ===== Timeline (bottom) ===== */
+/* ===== Timeline ===== */
 .timeline {
   position: absolute;
   left: 80px;
@@ -289,12 +289,7 @@
 .collapsible.left  { left: 10px; }
 .collapsible.right { right: 10px; }
 
-/*
-Because we're using transform for BOTH:
-- vertical centering (translateY(-50%))
-- sliding horizontally (translateX(...))
-we have to define full transform per state.
-*/
+/* expanded state */
 .collapsible.open.left {
   transform: translate(0, -50%);
   opacity: 1;
@@ -304,7 +299,6 @@ we have to define full transform per state.
   opacity: 1;
 }
 
-/* keep ~44px visible as a grab area when collapsed */
 .collapsible.collapsed.left {
   transform: translate(-104%, -50%);
   opacity: .9;
@@ -336,7 +330,7 @@ we have to define full transform per state.
   height: 48px;
   border-radius: 8px;
   border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(48, 50, 54, 0.9); /* dark navy glass */
+  background: rgba(48, 50, 54, 0.9);
   color: #fff;
   font-size: 18px;
   font-weight: 500;
@@ -349,12 +343,12 @@ we have to define full transform per state.
     inset 0 1px 0 rgba(255,255,255,0.07);
   cursor: pointer;
   padding: 0;
-  z-index: 10001; /* above the panel so it's always clickable */
+  z-index: 10001; 
 }
 
-/* dock the pill just outside the edge */
 .pill-toggle.left {
   right: -38px;
+  top: 35%
 }
 .pill-toggle.right {
   left: -38px;
@@ -369,7 +363,6 @@ we have to define full transform per state.
   transform: translateY(calc(-50% + 1px));
 }
 
-/* keep panel title style consistent with rest of app */
 .panel-title {
   margin: 0 0 10px 0;
   font-size: 20px;
@@ -377,4 +370,138 @@ we have to define full transform per state.
   color: var(--accent);
   letter-spacing: 0.5px;
   text-shadow: 0 0 8px rgba(255, 90, 36, 0.4);
+}
+
+/* ===== Sidebar ===== */
+.sidebar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+
+  display: flex;
+  flex-direction: column;
+
+  background: var(--panel-bg);
+  border-right: 1px solid var(--panel-border);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  backdrop-filter: blur(8px) saturate(150%);
+  z-index: 1002;               /* above globe; below intro */
+  pointer-events: auto;
+  transition: width 240ms ease;
+  overflow: hidden;
+}
+
+/* ===== Sidebar Header Layout ===== */
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 10px 8px 10px;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-logo {
+  width: 28px;
+  height: 34px;
+}
+
+.sidebar-title {
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--accent);
+}
+
+.sidebar-toggle {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 16px;
+  background: #ff6a00;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+}
+.sidebar-toggle:hover { filter: brightness(1.05); }
+.sidebar-toggle:active { transform: translateY(1px); }
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 6px;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: #fff;
+  opacity: 0.92;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.sidebar-link:hover {
+  background: rgba(255,255,255,0.08);
+  opacity: 1;
+}
+
+.sidebar-link-dot {
+  width: 8px;
+  height: 8px;
+  gap: 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  flex: 0 0 auto;
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--panel-border);
+  opacity: 0.85;
+}
+
+/* Screen-reader only helper (keeps a11y text when collapsed) */
+.sr-only {
+  position: absolute !important;
+  height: 1px; width: 1px;
+  overflow: hidden;
+  clip: rect(1px, 1px, 1px, 1px);
+}
+
+/* ===== Sidebar Toggle Visibility Control ===== */
+.logo-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  position: relative;
+}
+
+/* Hide toggle when sidebar is collapsed */ 
+.sidebar.collapsed .sidebar-toggle.hidden {
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+/* Reveal toggle when hovering logo area */
+.sidebar.collapsed .logo-wrapper:hover .sidebar-toggle.hidden {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* When sidebar is open, toggle stays visible */
+.sidebar.open .sidebar-toggle.visible {
+  opacity: 1;
+  pointer-events: auto;
+  position: static;
+  transform: none;
+  transition: 0.1ms ease;
 }
