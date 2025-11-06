@@ -130,7 +130,7 @@
 .base-switch {
   position: absolute;
   top: 10px;
-  left: 100px;
+  left: 30px;
   display: flex;
   gap: 8px;
   pointer-events: auto;
@@ -255,6 +255,7 @@
 }
 
 /* ===== Responsive niceties ===== */
+/*
 @media (max-width: 920px) {
   .panel-left {
     left: 16px;
@@ -272,6 +273,7 @@
     right: 60px;
   }
 }
+  */
 
 /* --- Collapsible side panels --- */
 .collapsible {
@@ -348,7 +350,7 @@
 
 .pill-toggle.left {
   right: -38px;
-  top: 35%
+  top: 50%
 }
 .pill-toggle.right {
   left: -38px;
@@ -372,136 +374,69 @@
   text-shadow: 0 0 8px rgba(255, 90, 36, 0.4);
 }
 
-/* ===== Sidebar ===== */
-.sidebar {
+.site-header {
   position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-
-  display: flex;
-  flex-direction: column;
-
-  background: var(--panel-bg);
-  border-right: 1px solid var(--panel-border);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.35);
-  backdrop-filter: blur(8px) saturate(150%);
-  z-index: 1002;               /* above globe; below intro */
-  pointer-events: auto;
-  transition: width 240ms ease;
-  overflow: hidden;
-}
-
-/* ===== Sidebar Header Layout ===== */
-.sidebar-top {
+  top: 0; left: 0; right: 0;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 10px 8px 10px;
-  gap: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 8px 14px;
+  background: var(--panel-bg);
+  border-bottom: 1px solid var(--panel-border);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  backdrop-filter: blur(8px) saturate(150%);
+  z-index: 1002;
+  pointer-events: auto;
 }
 
-.sidebar-logo {
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+}
+
+.header-logo {
   width: 28px;
   height: 34px;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4));
 }
 
-.sidebar-title {
+.header-title {
   font-weight: 600;
   letter-spacing: 0.3px;
   color: var(--accent);
 }
 
-.sidebar-toggle {
-  width: 34px;
-  height: 34px;
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: 700;
-  font-size: 16px;
-  background: #ff6a00;
-  color: #fff;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
-}
-.sidebar-toggle:hover { filter: brightness(1.05); }
-.sidebar-toggle:active { transform: translateY(1px); }
-
-.sidebar-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 6px;
-}
-
-.sidebar-link {
+.header-nav {
   display: flex;
   align-items: center;
-  gap: 10px;
-  text-decoration: none;
+  gap: 8px;
+}
+
+.header-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 10px;
   color: #fff;
   opacity: 0.92;
-  border-radius: 10px;
-  padding: 10px 12px;
+  text-decoration: none;
 }
-.sidebar-link:hover {
+
+.header-link:hover {
   background: rgba(255,255,255,0.08);
   opacity: 1;
 }
 
-.sidebar-link-dot {
-  width: 8px;
-  height: 8px;
-  gap: 10px;
-  border-radius: 999px;
-  background: var(--accent);
-  flex: 0 0 auto;
-}
+/* Nudge floating controls below header */
+.base-switch { top: 72px; }
+.controls-right { top: 78px; }
 
-.sidebar-footer {
-  margin-top: auto;
-  padding: 10px 12px 12px;
-  border-top: 1px solid var(--panel-border);
-  opacity: 0.85;
-}
-
-/* Screen-reader only helper (keeps a11y text when collapsed) */
-.sr-only {
-  position: absolute !important;
-  height: 1px; width: 1px;
-  overflow: hidden;
-  clip: rect(1px, 1px, 1px, 1px);
-}
-
-/* ===== Sidebar Toggle Visibility Control ===== */
-.logo-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  position: relative;
-}
-
-/* Hide toggle when sidebar is collapsed */ 
-.sidebar.collapsed .sidebar-toggle.hidden {
-  opacity: 0;
-  pointer-events: none;
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-
-/* Reveal toggle when hovering logo area */
-.sidebar.collapsed .logo-wrapper:hover .sidebar-toggle.hidden {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* When sidebar is open, toggle stays visible */
-.sidebar.open .sidebar-toggle.visible {
-  opacity: 1;
-  pointer-events: auto;
-  position: static;
-  transform: none;
-  transition: 0.1ms ease;
-}
