@@ -13,21 +13,14 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scale bar: bottom-left (above attribution) */
-.og-scale-container {
-  position: absolute ;
-  left: 20px ;
-  bottom: 20px ;
-  z-index: 10;
-}
-
-/* Attribution: keep visible along bottom-left */
-.og-attribution {
-  position: absolute ;
-  left: 8px ;
-  bottom: 4px ;
-  z-index: -10; /* lower than overlay panels */
-  pointer-events: none; /* prevent blocking clicks */
+/* ===== App-wide variables used by App.css ===== */
+:root {
+  --app-bg: #242424;
+  --panel-bg: rgba(15, 15, 15, 0.45);
+  --panel-border: rgba(255, 255, 255, 0.12);
+  --accent: #ff844a;
+  --accent-strong: #ff5a24;
+  --accent-faint: rgba(255, 120, 0, 0.25);
 }
 
 body {
@@ -45,7 +38,41 @@ html, body, #root {
   padding: 0;
 }
 
-/* Reposition OpenGlobus coordinates to bottom right */
+
+/*--- Styling For OpenGlobus Components ---*/
+/* Scale bar */
+.og-scale-container{
+  z-index: 1 !important; /* stays above globe, below overlays */
+  position: absolute !important;
+  bottom: 15px !important;
+  right: 275px !important;
+}
+
+.og-scale-label {
+  color: white ;
+  text-align: center;
+  pointer-events: none ;
+  font-size: 12px;
+}
+
+.og-scale-ruler {
+  height: 7px;
+  border-left: 2px solid white ;
+  border-right: 2px solid white ;
+  border-bottom: 2px solid white ;
+  pointer-events: none ;
+}
+
+/* Attribution */
+.og-attribution {
+  position: absolute ;
+  left: 8px ;
+  bottom: 4px ;
+  z-index: -10;
+  pointer-events: none;
+}
+
+/* Coordinates */
 .og-coordinates {
   position: absolute !important;
   bottom: 10px !important;
@@ -67,26 +94,6 @@ html, body, #root {
   z-index: 1 !important; /* stays above globe, below overlays */
 }
 
-.og-scale-container{
-  z-index: 1 !important; /* stays above globe, below overlays */
-  position: absolute !important;
-  bottom: 15px !important;
-  right: 250px !important;
-  left: auto !important;
-  top: auto !important;
-  display: inline-flex !important;
-}
-
-/* ===== App-wide variables used by App.css ===== */
-:root {
-  --app-bg: #242424;
-  --panel-bg: rgba(15, 15, 15, 0.45);
-  --panel-border: rgba(255, 255, 255, 0.12);
-  --accent: #ff844a;
-  --accent-strong: #ff5a24;
-  --accent-faint: rgba(255, 120, 0, 0.25);
-}
-
 .og-compass-button,
 .og-zoomin-button,
 .og-zoomout-button {
@@ -104,6 +111,7 @@ html, body, #root {
     inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
   backdrop-filter: blur(2px);
 
+  margin-top: 50px;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -125,7 +133,6 @@ html, body, #root {
 .og-zoomout-button { 
   top: 118px !important;  /* ➖ below zoom-in */
 }
-
 
 .og-compass-button svg {
   width: 24px !important;
