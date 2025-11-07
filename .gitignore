@@ -18,4 +18,9 @@ Thumbs.db
 !.vscode/extensions.json
 !.vscode/settings.json
 
-*.csv
+
+# large files
+.csv
+*.geojson
+api-keys.txt
+*.tif
