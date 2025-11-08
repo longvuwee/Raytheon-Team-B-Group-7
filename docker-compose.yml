@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16
+    container_name: firecast-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: SE4485!
+      POSTGRES_DB: firecast
+    ports:
+      - "5432:5432"   # host:container
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # (optional) your backend/web service can go here too
+  # api:
+  #   build: .
+  #   environment:
+  #     DATABASE_URL: postgres://postgres:SE4485!@db:5432/firecast
+  #   depends_on:
+  #     - db
+
+volumes:
+  pgdata:
