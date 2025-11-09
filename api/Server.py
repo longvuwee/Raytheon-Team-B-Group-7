@@ -1,102 +1,161 @@
-# server.py
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import torch
-import requests
+# api/Server.py
 import os
+from flask import Flask, request, jsonify
+import joblib
+import psycopg2
+import numpy as np
 
-# --- Configuration ---
-OPENWEATHER_KEY = os.environ.get("OPENWEATHER_KEY")
-MODEL_PATH = "outputs/models/pytorch_fire_mlp.pt"  # adjust if needed
-
-# --- Flask setup ---
 app = Flask(__name__)
-CORS(app)
 
-# --- Load PyTorch model ---
-class MLP(torch.nn.Module):
-    def __init__(self, input_dim):
-        super().__init__()
-        self.net = torch.nn.Sequential(
-            torch.nn.Linear(input_dim, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, 32),
-            torch.nn.ReLU(),
-            torch.nn.Linear(32, 1),
-            torch.nn.Sigmoid(),
-        )
+# -------------------------
+# 1) Paths
+# -------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.path.join(BASE_DIR, "models")
 
-    def forward(self, x):
-        return self.net(x)
+SCALER_PATH = os.path.join(MODEL_DIR, "scaler.joblib")
+RF_PATH     = os.path.join(MODEL_DIR, "random_forest.joblib")
 
+# -------------------------
+# 2) Load ML artifacts
+# -------------------------
+scaler = joblib.load(SCALER_PATH)
+rf_model = joblib.load(RF_PATH)
 
-# Load checkpoint
-ckpt = torch.load(MODEL_PATH, map_location="cpu")
-feature_cols = ckpt["feature_cols"]
+# figure out feature order
+if hasattr(scaler, "feature_names_in_"):
+    feature_cols = list(scaler.feature_names_in_)
+else:
+    feature_cols = [
+        "latitude",
+        "longitude",
+        "brightness",
+        "bright_t31",
+        "confidence",
+        "daynight",
+        "elevation",
+        "slope",
+        "aspect",
+        "temp",
+        "humidity",
+        "wind_speed",
+        "precip",
+        "month",
+    ]
 
-model = MLP(len(feature_cols))
-model.load_state_dict(ckpt["model_state_dict"])
-model.eval()
+print("Scaler expects these features (in order):")
+for i, col in enumerate(feature_cols, start=1):
+    print(f"{i:2d}. {col}")
 
-# --- Weather Fetcher ---
-def get_live_weather(lat, lon):
-    if not OPENWEATHER_KEY:
-        print("⚠️ No OPENWEATHER_KEY set, returning zeroed weather data")
-        return {"wind_speed": 0.0, "wind_dir": 0.0, "temp": 0.0, "humidity": 0.0}
+# -------------------------
+# 3) DB config
+# -------------------------
+DB_CONFIG = {
+    "host": "localhost",
+    "port": 5433,
+    "dbname": "firecast",
+    "user": "postgres",
+    "password": "SE4485!",
+}
 
-    url = (
-        "https://api.openweathermap.org/data/2.5/weather"
-        f"?lat={lat}&lon={lon}&appid={OPENWEATHER_KEY}&units=metric"
-    )
+def get_db_conn():
+    return psycopg2.connect(**DB_CONFIG)
+
+@app.route("/db-test", methods=["GET"])
+def db_test():
     try:
-        res = requests.get(url, timeout=5)
-        res.raise_for_status()
-        data = res.json()
-        return {
-            "wind_speed": data.get("wind", {}).get("speed", 0.0),
-            "wind_dir": data.get("wind", {}).get("deg", 0.0),
-            "temp": data.get("main", {}).get("temp", 0.0),
-            "humidity": data.get("main", {}).get("humidity", 0.0),
-        }
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM firms_with_perimeter_labels;")
+        (count,) = cur.fetchone()
+        cur.close()
+        conn.close()
+        return jsonify({"status": "connected", "rows": int(count)})
     except Exception as e:
-        print(f"⚠️ Weather fetch failed: {e}")
-        return {"wind_speed": 0.0, "wind_dir": 0.0, "temp": 0.0, "humidity": 0.0}
+        return jsonify({"status": "error", "detail": str(e)}), 500
 
+# -------------------------
+# RF debug
+# -------------------------
+@app.route("/rf-debug", methods=["GET"])
+def rf_debug():
+    info = {
+        "classes_": (
+            rf_model.classes_.tolist()
+            if hasattr(rf_model, "classes_")
+            else None
+        ),
+        "n_estimators": int(getattr(rf_model, "n_estimators", 0)),
+    }
+    return jsonify(info)
 
-# --- Prediction Endpoint ---
+# -------------------------
+# helper: make things JSON-safe
+# -------------------------
+def to_py(x):
+    if isinstance(x, np.generic):
+        return x.item()
+    if isinstance(x, np.ndarray):
+        return x.tolist()
+    return x
+
+# -------------------------
+# 4) Predict
+# -------------------------
 @app.route("/predict", methods=["POST"])
 def predict():
-    body = request.get_json()
-    feats = body.get("features", {})
+    try:
+        if not request.data:
+            return jsonify({"error": "no JSON body"}), 400
 
-    lat = feats.get("latitude")
-    lon = feats.get("longitude")
+        data = request.get_json(silent=True)
+        if data is None:
+            return jsonify({"error": "invalid JSON"}), 400
 
-    # Fetch weather data
-    if lat is not None and lon is not None:
-        wx = get_live_weather(lat, lon)
-        feats.update(wx)
+        # build input in correct order
+        row = []
+        for col in feature_cols:
+            val = data.get(col, 0)
+            try:
+                val = float(val)
+            except (TypeError, ValueError):
+                val = 0.0
+            row.append(val)
 
-    # Build feature vector
-    x_vals = [float(feats.get(c, 0.0)) for c in feature_cols]
-    x_tensor = torch.tensor([x_vals], dtype=torch.float32)
+        # scale
+        try:
+            X_scaled = scaler.transform([row])
+        except Exception as e:
+            return jsonify({
+                "error": "scaler.transform failed",
+                "detail": str(e),
+                "expected_features": feature_cols,
+                "input_used": row,
+            }), 400
 
-    # Predict
-    with torch.no_grad():
-        prob = model(x_tensor).item()
-    pred = 1 if prob > 0.5 else 0
+        # predict
+        y_pred = rf_model.predict(X_scaled)[0]
+        y_pred = to_py(y_pred)
 
-    return jsonify({
-        "prediction": pred,
-        "probability": prob,
-        "used_weather": {
-            "wind_speed": feats.get("wind_speed"),
-            "wind_dir": feats.get("wind_dir"),
-            "temp": feats.get("temp"),
-            "humidity": feats.get("humidity"),
-        }
-    })
+        proba = None
+        if hasattr(rf_model, "predict_proba"):
+            proba = rf_model.predict_proba(X_scaled)[0]
+            proba = to_py(proba)
 
+        return jsonify({
+            "prediction": y_pred,
+            "probabilities": proba,
+            "used_features": feature_cols,
+            "input_used": row,
+        })
 
+    except Exception as e:
+        # catch absolutely everything so Flask doesn't return None
+        return jsonify({
+            "error": "unexpected error in /predict",
+            "detail": str(e),
+        }), 500
+
+# -------------------------
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)
