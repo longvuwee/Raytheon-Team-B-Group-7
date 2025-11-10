@@ -12,6 +12,8 @@ import LeftInfoPanel from "./components/LeftInfoPanel";
 import LayerPanel from "./components/LayerPanel";
 import Logo from "./components/Logo";
 import Header from "./components/Header";
+import HeatmapOverlayLayer from "./components/HeatmapOverlayLayer";
+
 
 /* ---- Hooks ---- */
 import useTimeline from "./hooks/useTimeline";
@@ -50,6 +52,8 @@ export default function App() {
         className="globe"
         initialView={initialView}
       />
+
+      <HeatmapOverlayLayer globeRef={globeRef} />
 
       {/* === Data Layers === */}
       <FiresLayer globus={globeRef.current?.getGlobus?.()} />
