@@ -10,33 +10,56 @@ export default function HeatmapOverlayLayer({ globeRef }) {
 
     (async () => {
       try {
-        // === 1. Load your CSV ===
-        const res = await fetch("/data/fires_labeled_with_perimeter_labels.csv");
-        const text = await res.text();
-        const lines = text.split(/\r?\n/).filter(Boolean);
-        if (lines.length < 2) return;
-
-        const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
-        const latIdx = headers.findIndex((h) =>
-          ["latitude", "lat", "lat_dd"].includes(h)
-        );
-        const lonIdx = headers.findIndex((h) =>
-          ["longitude", "lon", "lon_dd"].includes(h)
-        );
-        if (latIdx === -1 || lonIdx === -1) {
-          console.warn("CSV missing latitude/longitude headers for heatmap layer");
+        // === 1. Load points from Supabase ===
+        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+        const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+          console.error("Supabase not configured (VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY missing)");
           return;
         }
 
-        // === 2. Parse points ===
-        const pts = [];
-        for (let i = 1; i < lines.length; i++) {
-          const row = lines[i].split(",");
-          const lat = parseFloat(row[latIdx]);
-          const lon = parseFloat(row[lonIdx]);
-          if (isFinite(lat) && isFinite(lon)) pts.push({ lon, lat });
+        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fires?select=latitude,longitude`;
+        const res = await fetch(url, {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            Accept: "application/json",
+          },
+        });
+        if (!res.ok) {
+          throw new Error(`Supabase fetch failed: ${res.status} ${res.statusText}`);
         }
+        const rows = await res.json();
+        const pts = rows
+          .map((r) => {
+            const lat = parseFloat(r.latitude);
+            const lon = parseFloat(r.longitude);
+            return isFinite(lat) && isFinite(lon) ? { lon, lat } : null;
+          })
+          .filter(Boolean);
         if (!pts.length || cancelled) return;
+
+        /*
+         If you want to use the local CSV during preview instead of Supabase,
+         uncomment the block below and comment out the Supabase fetch above.
+
+        // === Local CSV fallback (commented on purpose) ===
+        // const res = await fetch("/data/fires_labeled_with_perimeter_labels.csv");
+        // const text = await res.text();
+        // const lines = text.split(/\r?\n/).filter(Boolean);
+        // if (lines.length < 2) return;
+        // const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
+        // const latIdx = headers.findIndex((h) => ["latitude", "lat", "lat_dd"].includes(h));
+        // const lonIdx = headers.findIndex((h) => ["longitude", "lon", "lon_dd"].includes(h));
+        // if (latIdx === -1 || lonIdx === -1) return;
+        // const pts = [];
+        // for (let i = 1; i < lines.length; i++) {
+        //   const row = lines[i].split(",");
+        //   const lat = parseFloat(row[latIdx]);
+        //   const lon = parseFloat(row[lonIdx]);
+        //   if (isFinite(lat) && isFinite(lon)) pts.push({ lon, lat });
+        // }
+        */
 
         // === 3. Generate one heatmap image from points ===
         const { imageDataUrl, bbox } = makeDensityHeatmap(pts);

@@ -42,7 +42,9 @@ const GlobeCanvas = forwardRef(function GlobeCanvas(
 
     return () => {
       window.removeEventListener("resize", onResize);
-      try { g.destroy(); } catch {}
+      try { g.destroy(); } catch {
+        // Ignore errors during globe cleanup
+      }
       globeRef.current = null;
       osmRef.current = null;
       satRef.current = null;

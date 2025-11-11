@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Entity } from "@openglobus/og";
 import makeSquareIcon from "../utils/dataPoints";
+import filterClusteredOutliers from "../utils/filterClusters";
 
 export default function FiresLayer({ globus }) {
   useEffect(() => {
@@ -15,28 +16,54 @@ export default function FiresLayer({ globus }) {
 
     const sync = () => {
       const px = scale(globus.planet.camera.getHeight());
-      if (Math.abs(px - last) < 0.5) return;
+      if (Math.abs(px - last) < 0.5) return;  // Only update when visually significant
       last = px; entities.forEach(e => e.billboard?.setSize(px, px));
     };
     const cam = globus.planet.camera;
-    cam.events.on("move", sync); cam.events.on("zoom", sync); cam.events.on("moveend", sync);
+    cam.events.off("move", sync); cam.events.off("zoom", sync); cam.events.on("moveend", sync);
 
     (async () => {
       try {
-        const text = await (await fetch("/data/fires_labeled_with_perimeter_labels.csv")).text();
-        const lines = text.split(/\r?\n/).filter(Boolean);
-        const headers = lines[0].split(",").map(h=>h.trim().toLowerCase());
-        const latIdx = headers.indexOf("latitude"), lonIdx = headers.indexOf("longitude");
-        for (let i=1;i<lines.length && !cancelled;i++) {
-          const row = lines[i].split(",");
-          const lat = parseFloat(row[latIdx]), lon = parseFloat(row[lonIdx]);
-          if (!isFinite(lat) || !isFinite(lon)) continue;
-          const ent = new Entity({ lonlat:[lon,lat], billboard:{ src: iconURL, size:[last,last] }});
-          layer.add(ent); entities.push(ent);
-          if (i % 2000 === 0) await new Promise(r=>requestAnimationFrame(r));
+        // === Load points from Supabase ===
+        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+        const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+          console.error("Supabase not configured (VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY missing)");
+          return;
+        }
+
+        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fires?select=latitude,longitude`;
+        const res = await fetch(url, {
+          headers: {
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            Accept: "application/json",
+          },
+        });
+        if (!res.ok) throw new Error(`Supabase fetch failed: ${res.status} ${res.statusText}`);
+        const rows = await res.json();
+
+        // Parse rows into {lat, lon}
+        const allPoints = rows
+          .map((r) => {
+            const lat = parseFloat(r.latitude);
+            const lon = parseFloat(r.longitude);
+            return isFinite(lat) && isFinite(lon) ? { lat, lon } : null;
+          })
+          .filter(Boolean);
+
+        // Keep only clustered points (remove isolated points)
+        const clustered = filterClusteredOutliers(allPoints, 5, 4);
+        console.log(`Loaded ${allPoints.length} points, keeping ${clustered.length} clustered points`);
+
+        for (const p of clustered) {
+          if (cancelled) break;
+          const ent = new Entity({ lonlat:[p.lon, p.lat], billboard:{ src: iconURL, size:[last,last] }});
+          layer.add(ent); 
+          entities.push(ent);
         }
         sync();
-      } catch(e) { console.error("Fires CSV load failed:", e); }
+      } catch(e) { console.error("Fires data load failed:", e); }
     })();
 
     return () => {
