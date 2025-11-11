@@ -5,11 +5,10 @@ import "./App.css";
 /* ---- Components ---- */
 import GlobeCanvas from "./components/GlobeCanvas";
 import FiresLayer from "./components/FiresLayer";
-import BaseSwitch from "./components/BaseSwitch";
 import Timeline from "./components/Timeline";
 import IntroOverlay from "./components/IntroOverlay";
 import LeftInfoPanel from "./components/LeftInfoPanel";
-import LayerPanel from "./components/LayerPanel";
+import LayerPanel from "./components/RightInfoPanel";
 import Logo from "./components/Logo";
 import Header from "./components/Header";
 
@@ -22,6 +21,22 @@ export default function App() {
 
   // Base-map toggle
   const [base, setBase] = useState("OSM");
+
+  // Visualization mode + layer visibility for the left panel
+  const [vizMode, setVizMode] = useState("KDE Heatmap");
+  const [layers, setLayers] = useState({
+    "Predicted Spread": true,
+    "Fire Perimeters": true,
+    "MODIS Hotspots": true,
+  });
+
+  const [model, setModel] = useState("Neural Network");
+
+  const [forecastSettings, setForecastSettings] = useState({
+    horizon: "24 hours",
+    display: "Heatmap",
+    threshold: 75,
+  });
 
   // Keep this stable so GlobeCanvas doesn't re-init
   const initialView = useMemo(
@@ -59,11 +74,18 @@ export default function App() {
         <Header />
 
         {/* === Change to layers panel === */}
-        <LeftInfoPanel />
+        <LeftInfoPanel
+          baseMap={base}
+          onBaseMapChange={handleBaseChange}
+          vizMode={vizMode}
+          setVizMode={setVizMode}
+          layers={layers}
+          setLayers={setLayers}
+        />
 
         <LayerPanel />
 
-        <BaseSwitch value={base} onChange={handleBaseChange} />
+        {/* <BaseSwitch value={base} onChange={handleBaseChange} /> */}
 
         <Timeline
           tz={tz}

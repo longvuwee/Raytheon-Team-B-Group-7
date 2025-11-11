@@ -151,3 +151,105 @@ html, body, #root {
 .og-zoomout-button:active {
   transform: translateY(1px);
 }
+
+/* ==== Shared panel layout (Left + Right) ==== */
+
+.panel-section {
+  margin-bottom: 1rem;
+}
+
+.panel-text {
+  font-size: 0.9rem;
+  color: #f5f5f5;
+  margin: 0.15rem 0;
+}
+
+.panel-text.subtle,
+.field-helper {
+  font-size: 0.8rem;
+  color: #cccccc;
+}
+
+/* Title + borders handled inside CollapsiblePanel, this is just inner layout */
+.field-label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+  color: #ffffff;
+}
+
+/* Dropdowns */
+.field-select {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(10, 10, 10, 0.6);
+  color: #ffffff;
+  font-size: 0.9rem;
+}
+
+.field-select:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+
+/* Box that groups checkboxes / text (like the example screenshot) */
+.field-box {
+  background: rgba(10, 10, 10, 0.6);
+  border-radius: 4px;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  color: #ffffff;
+}
+
+/* Slider label */
+.range-label {
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  color: #ffffff;
+  text-align: right;
+}
+
+/* Helper text under fields */
+.field-helper {
+  margin-top: 0.3rem;
+}
+
+/* Run Forecast button */
+.run-btn {
+  margin-top: 0.9rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45);
+}
+
+.run-btn:hover {
+  filter: brightness(1.05);
+}
+.run-btn:active {
+  transform: translateY(1px);
+}
+
+.base-button-row {
+  display: flex;
+  justify-content: left;  /* centers the buttons horizontally */
+  align-items: center;
+  gap: 12px;                /* adds space between them */
+  flex-wrap: wrap;          /* prevents squishing if window shrinks */
+  margin-top: 6px;
+}
