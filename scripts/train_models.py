@@ -4,7 +4,7 @@ from training.trainer import ModelTrainer
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--dataset-csv", default="outputs/data/unified_training_dataset.csv")
+    p.add_argument("--dataset-csv", default="outputs/data/unified_with_weather.csv")
     p.add_argument("--output-dir", default="outputs/models")
     return p.parse_args()
 

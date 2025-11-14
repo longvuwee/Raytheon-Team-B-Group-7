@@ -4,9 +4,9 @@ import requests
 import pandas as pd
 from datetime import datetime, time
 
-INPUT_CSV = "data/datasets/fires_with_topo_full.csv"   # your current fire csv
-OUT_CSV = "outputs/features/fires_with_hist_weather.csv"
-os.makedirs("outputs/features", exist_ok=True)
+INPUT_CSV = "outputs/data/unified_training_dataset.csv"
+OUT_CSV = "outputs/data/unified_with_weather.csv"
+os.makedirs("outputs/data", exist_ok=True)
 
 # open-meteo base
 BASE_URL = "https://archive-api.open-meteo.com/v1/archive"
