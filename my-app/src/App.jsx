@@ -28,14 +28,14 @@ export default function App() {
   const [vizMode, setVizMode] = useState("KDE Heatmap");
   const [layers, setLayers] = useState({
     "Predicted Spread": true,
-    "Fire Perimeters": true,
+    "2025 Fire Perimeters": true,
     "MODIS Hotspots": true,
   });
 
   const [model, setModel] = useState("Neural Network");
 
   const [forecastSettings, setForecastSettings] = useState({
-    horizon: "24 hours",
+    horizon: "12 hours",
     display: "Heatmap",
     threshold: 75,
   });

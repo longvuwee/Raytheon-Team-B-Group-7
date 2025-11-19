@@ -9,7 +9,7 @@ export default function RightInfoPanel({
   forecastSettings = {},
   setForecastSettings = () => {},
 }) {
-  const horizon = forecastSettings.horizon || "24 hours";
+  const horizon = forecastSettings.horizon || "12 hours";
   const display = forecastSettings.display || "Heatmap";
   const threshold = forecastSettings.threshold ?? 75;
 
@@ -63,7 +63,6 @@ export default function RightInfoPanel({
         >
           <option>6 hours</option>
           <option>12 hours</option>
-          <option>24 hours</option>
         </select>
 
         <label className="field-label" style={{ marginTop: "0.75rem" }}>
