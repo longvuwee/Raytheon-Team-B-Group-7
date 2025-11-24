@@ -2,9 +2,9 @@ import Logo from "./Logo";
 
 const SECTIONS = [
   { title: "Creators", href: "#/creators" },
-  { title: "API",      href: "#/api" },
-  { title: "Sources",  href: "#/sources" },
-  { title: "Docs",     href: "#/docs" },
+  { title: "API", href: "#/api" },
+  { title: "Sources", href: "#/sources" },
+  { title: "Docs", href: "#/docs" },
 ];
 
 export default function Header() {
@@ -15,6 +15,14 @@ export default function Header() {
         <a className="header-brand" href="#/">
           <Logo className="header-logo" />
           <span className="header-title">FireCastX</span>
+        </a>
+      </div>
+
+      {/* Center: Map button */}
+      <div className="header-center">
+        <a className="map-button" href="#/">
+          <span className="map-icon">🌍</span>
+          <span>Map</span>
         </a>
       </div>
 
