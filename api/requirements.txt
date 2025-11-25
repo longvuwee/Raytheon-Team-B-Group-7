@@ -4,3 +4,4 @@ pandas
 joblib
 psycopg2-binary
 torch
+flask_cors
