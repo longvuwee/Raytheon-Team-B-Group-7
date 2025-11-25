@@ -45,11 +45,7 @@ html, body, #root {
   z-index: 1 !important; /* stays above globe, below overlays */
   position: absolute !important;
   bottom: 15px !important;
-<<<<<<< HEAD
   right: 300px !important;
-=======
-  right: 275px !important;
->>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
 }
 
 .og-scale-label {
@@ -102,7 +98,6 @@ html, body, #root {
 .og-zoomin-button,
 .og-zoomout-button {
   position: absolute !important;
-<<<<<<< HEAD
   width: 40px !important;
   height: 40px !important;
   border-radius: 8px !important;
@@ -124,10 +119,9 @@ html, body, #root {
   cursor: pointer;
   transition: all 0.2s ease !important;
   font-size: 16px !important;
-
 }
 
-/* Stack order - horizontal layout on left side below header */
+/* Horizontal layout on left side below header */
 .og-compass-button { 
   top: 80px !important;   /* 🧭 Compass at the leftmost position, below header */
   left: 10px !important;
@@ -143,41 +137,6 @@ html, body, #root {
   top: 80px !important;  /* ➖ at the rightmost, below header */
   left: 118px !important;
   right: auto !important;
-=======
-  right: 10px !important;
-  width: 40px !important;
-  height: 40px !important;
-  border-radius: 10px !important;
-
-  /* matching the example: dark, glassy button tiles */
-  background: rgba(30, 30, 30, 0.85) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
-  backdrop-filter: blur(2px);
-
-  margin-top: 50px;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  fill: #d3d3d3 !important;
-  z-index: 20 !important;
-  cursor: pointer;
-
-}
-
-/* Stack order (top → bottom) */
-.og-compass-button { 
-  top: 10px !important;   /* 🧭 Compass at very top-right */
-  left: auto !important; 
-  bottom: auto !important; 
-}
-.og-zoomin-button  { 
-  top: 64px !important;   /* ➕ directly below compass */
-}
-.og-zoomout-button { 
-  top: 118px !important;  /* ➖ below zoom-in */
 >>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
 }
 
@@ -187,7 +146,6 @@ html, body, #root {
   filter: drop-shadow(0 1px 1px rgba(0,0,0,0.4));
 }
 
-<<<<<<< HEAD
 /* Hover feedback - show boxes only on hover */
 .og-compass-button:hover,
 .og-zoomin-button:hover,
@@ -199,22 +157,12 @@ html, body, #root {
   fill: var(--accent) !important;
   color: var(--accent) !important;
   transform: translateY(-1px) !important;
-=======
-/* Hover feedback */
-.og-compass-button:hover,
-.og-zoomin-button:hover,
-.og-zoomout-button:hover {
-  background: rgba(35, 35, 35, 0.9) !important;
 >>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
 }
 .og-compass-button:active,
 .og-zoomin-button:active,
 .og-zoomout-button:active {
-<<<<<<< HEAD
   transform: translateY(0px) !important;
-=======
-  transform: translateY(1px);
->>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
 }
 
 /* ==== Shared panel layout (Left + Right) ==== */
