@@ -4,6 +4,7 @@ from flask_cors import CORS
 import torch
 import requests
 import os
+from predictor import predict_fire_spread
 
 # --- Configuration ---
 OPENWEATHER_KEY = os.environ.get("OPENWEATHER_KEY")
@@ -65,7 +66,30 @@ def get_live_weather(lat, lon):
 
 # --- Prediction Endpoint ---
 @app.route("/predict", methods=["POST"])
-def predict():
+def predict_general():
+    try:
+        data = request.get_json()
+        if data is None:
+            return jsonify({"error": "Invalid or missing JSON body"}), 400
+
+        model_name = data.get("model", "random_forest")
+
+        # Validate model name
+        if model_name not in ["random_forest", "logistic_regression", "pytorch_nn"]:
+            return jsonify({
+                "error": "Invalid model",
+                "allowed": ["random_forest", "logistic_regression", "pytorch_nn"]
+            }), 400
+
+        result = predict_fire_spread(data, model_name=model_name)
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({
+            "error": "unexpected error in /predict",
+            "detail": str(e),
+        }), 500
+
     body = request.get_json()
     feats = body.get("features", {})
 
@@ -97,6 +121,25 @@ def predict():
         }
     })
 
+@app.route("/predict-nn", methods=["POST"])
+def predict_nn():
+    try:
+        data = request.get_json()
+        if data is None:
+            return jsonify({"error": "Invalid or missing JSON body"}), 400
+
+        result = predict_fire_spread(data, model_name="pytorch_nn")
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({
+            "error": "unexpected error in /predict-nn",
+            "detail": str(e),
+        }), 500
+
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
