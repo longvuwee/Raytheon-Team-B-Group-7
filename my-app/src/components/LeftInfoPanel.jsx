@@ -36,7 +36,11 @@ export default function LeftInfoPanel({
       <section className="panel-section">
         <label className="field-label">Base Map</label>
         <div className="base-button-row">
+<<<<<<< HEAD
           {["OSM", "SAT"].map((name) => (
+=======
+          {["OSM", "SAT", "Topography"].map((name) => (
+>>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
             <button
               key={name}
               className={`btn ${baseMap === name ? "btn-disabled" : ""}`}

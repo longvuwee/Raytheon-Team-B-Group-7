@@ -278,7 +278,11 @@
 /* --- Collapsible side panels --- */
 .collapsible {
   position: absolute;
+<<<<<<< HEAD
   top: 45%;
+=======
+  top: 50%;
+>>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
   transform: translate(0, 50%);
   width: 320px;
   max-width: min(88vw, 360px);
@@ -289,11 +293,15 @@
 
 /* left vs right anchor */
 .collapsible.left  { left: 10px; }
+<<<<<<< HEAD
 .collapsible.right { 
   right: 70px; /* Move away from zoom controls */
   width: 420px; /* Make it much wider */
   max-width: min(90vw, 450px);
 }
+=======
+.collapsible.right { right: 10px; }
+>>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
 
 /* expanded state */
 .collapsible.open.left {
@@ -325,6 +333,7 @@
   backdrop-filter: blur(8px) saturate(150%);
   min-width: 220px;
   pointer-events: auto;
+<<<<<<< HEAD
   max-height: 65vh;
   overflow-y: auto;
   overflow-x: hidden;
@@ -347,6 +356,8 @@
 
 .collapsible .panel::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
+=======
+>>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
 }
 
 /* pill toggle button that floats on the side, vertically centered */
@@ -561,6 +572,7 @@
   opacity: 1;
 }
 
+<<<<<<< HEAD
 /* Bold style for Map button */
 .header-link-bold {
   font-weight: 700 !important;
@@ -716,6 +728,8 @@
   z-index: 10;
 }
 
+=======
+>>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
 /* Page content styles */
 .page-content {
   padding: 120px 3rem 3rem;
@@ -774,6 +788,7 @@
     gap: 6px;
   }
   
+<<<<<<< HEAD
   .header-center {
     position: static;
     transform: none;
@@ -783,6 +798,8 @@
     margin-top: 8px;
   }
   
+=======
+>>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
   .header-link {
     padding: 8px 12px;
     font-size: 0.9rem;

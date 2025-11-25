@@ -13,7 +13,10 @@ import Logo from "./components/Logo";
 import Header from "./components/Header";
 import HeatmapOverlayLayer from "./components/HeatmapOverlayLayer";
 import Creators from "./components/Creators";
+<<<<<<< HEAD
 import SearchBar from "./components/SearchBar";
+=======
+>>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
 
 /* ---- Hooks ---- */
 import useTimeline from "./hooks/useTimeline";
@@ -140,6 +143,7 @@ export default function App() {
                 setLayers={setLayers}
               />
 
+<<<<<<< HEAD
               <LayerPanel 
                 model={model}
                 setModel={setModel}
@@ -147,6 +151,9 @@ export default function App() {
                 setForecastSettings={setForecastSettings}
                 onRunForecast={() => console.log('Running forecast with settings:', forecastSettings)}
               />
+=======
+              <LayerPanel />
+>>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
 
               <Timeline
                 tz={tz}
@@ -171,6 +178,7 @@ export default function App() {
 
   return (
     <div className="app-root">
+<<<<<<< HEAD
       <Header 
         currentView={currentView}
         globeRef={globeRef}
@@ -179,6 +187,9 @@ export default function App() {
           console.log('Location selected:', location);
         }}
       />
+=======
+      <Header />
+>>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
       {renderContent()}
     </div>
   );
