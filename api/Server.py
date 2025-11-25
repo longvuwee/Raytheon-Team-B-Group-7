@@ -17,18 +17,13 @@ CORS(app)
 # Database connection (Supabase / Postgres)
 # -------------------------
 def get_db_conn():
-    """
-    Connect to Postgres using environment variables.
-    Expected env vars in Render:
-      DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
-    """
     return psycopg2.connect(
         host=os.environ["DB_HOST"],
         port=os.environ.get("DB_PORT", "5432"),
         dbname=os.environ["DB_NAME"],
         user=os.environ["DB_USER"],
         password=os.environ["DB_PASSWORD"],
-        sslmode="require",   # Supabase expects SSL
+        sslmode="require"
     )
 
 # -------------------------
