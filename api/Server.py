@@ -10,9 +10,6 @@ import psycopg2
 
 from predictor import predict_fire_spread  # uses RF, LR, PyTorch NN
 
-# -------------------------
-# Flask app setup
-# -------------------------
 app = Flask(__name__)
 CORS(app)
 
@@ -22,7 +19,7 @@ CORS(app)
 def get_db_conn():
     """
     Connect to Postgres using environment variables.
-    Expected env vars (set in Render):
+    Expected env vars in Render:
       DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
     """
     return psycopg2.connect(
@@ -31,6 +28,7 @@ def get_db_conn():
         dbname=os.environ["DB_NAME"],
         user=os.environ["DB_USER"],
         password=os.environ["DB_PASSWORD"],
+        sslmode="require",   # Supabase expects SSL
     )
 
 # -------------------------
@@ -51,7 +49,6 @@ def db_test():
     try:
         conn = get_db_conn()
         cur = conn.cursor()
-        # Simple test query; you can change this to count from your dataset table
         cur.execute("SELECT NOW();")
         (now_value,) = cur.fetchone()
         cur.close()
@@ -65,9 +62,8 @@ def db_test():
 # -------------------------
 def log_prediction_to_db(model_name: str, request_data: dict, result: dict):
     """
-    Insert a row into firecast_predictions.
+    Insert a row into firecast_predictions:
 
-    Table (run in Supabase):
       CREATE TABLE firecast_predictions (
           id SERIAL PRIMARY KEY,
           model_name TEXT NOT NULL,
@@ -101,6 +97,8 @@ def log_prediction_to_db(model_name: str, request_data: dict, result: dict):
     except Exception as e:
         # Don't crash the API if logging fails; just print error on server
         print("DB insert error:", e)
+        # Optional: also attach status into result for debugging
+        result["db_log_error"] = str(e)
 
 # -------------------------
 # Main predict endpoint
@@ -122,7 +120,7 @@ def predict_general():
                 "allowed": allowed
             }), 400
 
-        # Run the model (predictor.py handles feature order & scaling)
+        # Run the model
         result = predict_fire_spread(data, model_name=model_name)
 
         # Log to DB (Supabase)
