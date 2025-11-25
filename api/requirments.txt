@@ -1,0 +1,6 @@
+flask
+numpy
+pandas
+joblib
+psycopg2-binary
+torch
