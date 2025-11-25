@@ -1,6 +1,6 @@
 // GlobeCanvas.jsx
 import { useEffect, useRef, forwardRef, useImperativeHandle } from "react";
-import { Globe, OpenStreetMap, Bing, Vector } from "@openglobus/og";
+import { Globe, GlobusRgbTerrain, OpenStreetMap, Bing, Vector } from "@openglobus/og";
 
 const GlobeCanvas = forwardRef(function GlobeCanvas(
   { className, initialView = { lon:-120.583, lat:35.263, height:2000000 } },
@@ -22,6 +22,7 @@ const GlobeCanvas = forwardRef(function GlobeCanvas(
       target: hostRef.current,
       name: "Earth",
       layers: [osm, sat],
+      terrain: new GlobusRgbTerrain(),
       resourcesSrc: "/og-res",
       fontsSrc: "/og-res/fonts",
     });
@@ -41,7 +42,9 @@ const GlobeCanvas = forwardRef(function GlobeCanvas(
 
     return () => {
       window.removeEventListener("resize", onResize);
-      try { g.destroy(); } catch {}
+      try { g.destroy(); } catch {
+        // Ignore errors during globe cleanup
+      }
       globeRef.current = null;
       osmRef.current = null;
       satRef.current = null;
