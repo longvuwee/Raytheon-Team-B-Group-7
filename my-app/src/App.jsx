@@ -145,8 +145,8 @@ export default function App() {
             {/* Only render data layers once globe is ready */}
             {globeReady && (
               <>
-                <HeatmapOverlayLayer globeRef={globeRef} startDate={startDate} endDate={endDate} />
-                <FiresLayer globus={globeRef.current?.getGlobus?.()} startDate={startDate} endDate={endDate} />
+                <HeatmapOverlayLayer globeRef={globeRef} startDate={selectedDate} endDate={endDate} />
+                <FiresLayer globus={globeRef.current?.getGlobus?.()} startDate={selectedDate} endDate={endDate} />
               </>
             )}
 

@@ -91,11 +91,6 @@ export default function HeatmapOverlayLayer({ globeRef, startDate, endDate }) {
         planet.removeLayer(heatmapLayer);
         planet.addLayer(heatmapLayer);
 
-        // === 6. Center camera on data (only on first load) ===
-        const midLon = (minLon + maxLon) / 2;
-        const midLat = (minLat + maxLat) / 2;
-        planet.camera.flyLonLat(new LonLat(midLon, midLat, 1500000));
-
         console.log("✅ Heatmap overlay added successfully.");
       } catch (err) {
         console.error("❌ Heatmap overlay failed:", err);
