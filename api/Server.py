@@ -3,7 +3,7 @@
 import os
 import json
 from datetime import datetime
-
+import math
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import psycopg2
@@ -18,6 +18,29 @@ CORS(app)
 # -------------------------
 FIRE_THRESHOLD = 0.75  # 75% probability to consider it "fire"
 T_MAX = 12             # T goes from 0 to 12
+# -------------------------
+# Constants mapping
+# -------------------------
+BLOCK_FEET = 200.0
+FEET_PER_DEG_LAT = 364000.0
+BLOCK_DEG_LAT = BLOCK_FEET / FEET_PER_DEG_LAT  # ~0.00055
+
+# choose a representative latitude for your area (e.g., 37 for California-ish)
+REF_LAT_DEG = 37.0
+BLOCK_DEG_LON = BLOCK_FEET / (FEET_PER_DEG_LAT * math.cos(math.radians(REF_LAT_DEG)))
+
+def snap_to_block(latitude: float, longitude: float):
+    """
+    Snap raw (lat, lon) to a normalized block center of ~200 ft by 200 ft.
+    All coordinates that fall in the same block produce the same snapped pair.
+    """
+    row = math.floor(latitude / BLOCK_DEG_LAT)
+    col = math.floor(longitude / BLOCK_DEG_LON)
+
+    block_lat = (row + 0.5) * BLOCK_DEG_LAT
+    block_lon = (col + 0.5) * BLOCK_DEG_LON
+
+    return block_lat, block_lon
 
 # -------------------------
 # Database connection (Supabase / Postgres)
@@ -104,54 +127,37 @@ def log_prediction_to_db(model_name: str, request_data: dict, result: dict):
 # -------------------------
 # Helper: update T and T_burn per cell
 # -------------------------
-def update_fire_state_for_cell(latitude: float,
-                               longitude: float,
-                               prob: float,
-                               can_burn: bool = True):
+def update_fire_state_for_cell_blocked(latitude: float,
+                                       longitude: float,
+                                       prob: float,
+                                       can_burn: bool = True):
     """
-    Maintain the fire_cell_state table with T and T_burn, using rules:
-
-      - FIRE_THRESHOLD = 0.75
-      - T starts at 0 the first time prob >= 0.75 for that cell.
-      - While prob >= 0.75 and state is 'burning' (1), T increments until T_MAX.
-      - If prob drops below 0.75 after being burning, state becomes 'burned out' (2)
-        and T stays at its last value.
-      - State 0: no fire yet.
-      - State 1: currently burning.
-      - State 2: burned out (was burning, now not).
-      - State 3: cannot burn (water etc.), T is always 0.
-
-    Table (run once in Supabase):
-
-      CREATE TABLE IF NOT EXISTS fire_cell_state (
-          latitude    DOUBLE PRECISION NOT NULL,
-          longitude   DOUBLE PRECISION NOT NULL,
-          t           SMALLINT NOT NULL DEFAULT 0 CHECK (t BETWEEN 0 AND 12),
-          t_burn      SMALLINT NOT NULL DEFAULT 0 CHECK (t_burn BETWEEN 0 AND 3),
-          last_prob   DOUBLE PRECISION,
-          updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          PRIMARY KEY (latitude, longitude)
-      );
+    Same logic as before, but:
+      - Snaps (latitude, longitude) into a ~200ft block center.
+      - Stores T/T_burn and probabilities per block.
     """
+    # 1) Snap to 200ft block
+    block_lat, block_lon = snap_to_block(latitude, longitude)
+
     conn = get_db_conn()
     cur = conn.cursor()
 
-    # 1. Get previous state if it exists
+    # 2) Get previous state for this block, if any
     cur.execute(
         """
-        SELECT t, t_burn
+        SELECT t, t_burn, prob_sum, prob_count
         FROM fire_cell_state
         WHERE latitude = %s AND longitude = %s;
         """,
-        (latitude, longitude),
+        (block_lat, block_lon),
     )
     row = cur.fetchone()
     if row:
-        prev_t, prev_state = row
+        prev_t, prev_state, prev_sum, prev_count = row
     else:
-        prev_t, prev_state = 0, 0  # default: no fire
+        prev_t, prev_state, prev_sum, prev_count = 0, 0, 0.0, 0
 
-    # 2. Apply rules
+    # 3) Fire logic (same as before)
     if not can_burn:
         new_t = 0
         new_state = 3  # cannot burn
@@ -185,19 +191,25 @@ def update_fire_state_for_cell(latitude: float,
                 new_t = 0
                 new_state = 0
 
-    # 3. Upsert new state
+    # 4) Update running sum / count for averaging
+    new_sum = prev_sum + prob
+    new_count = prev_count + 1
+
+    # 5) Upsert new state for this block
     cur.execute(
         """
-        INSERT INTO fire_cell_state (latitude, longitude, t, t_burn, last_prob, updated_at)
-        VALUES (%s, %s, %s, %s, %s, NOW())
+        INSERT INTO fire_cell_state (latitude, longitude, t, t_burn, last_prob, prob_sum, prob_count, updated_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
         ON CONFLICT (latitude, longitude)
         DO UPDATE SET
-            t         = EXCLUDED.t,
-            t_burn    = EXCLUDED.t_burn,
-            last_prob = EXCLUDED.last_prob,
+            t          = EXCLUDED.t,
+            t_burn     = EXCLUDED.t_burn,
+            last_prob  = EXCLUDED.last_prob,
+            prob_sum   = fire_cell_state.prob_sum + EXCLUDED.prob_sum,
+            prob_count = fire_cell_state.prob_count + EXCLUDED.prob_count,
             updated_at = NOW();
         """,
-        (latitude, longitude, new_t, new_state, prob),
+        (block_lat, block_lon, new_t, new_state, prob, prob, 1),
     )
 
     conn.commit()
@@ -205,7 +217,6 @@ def update_fire_state_for_cell(latitude: float,
     conn.close()
 
     return new_t, new_state
-
 # -------------------------
 # Main predict endpoint
 # -------------------------
@@ -234,7 +245,7 @@ def predict_general():
         latitude = float(data["latitude"])
         longitude = float(data["longitude"])
         # For now we assume can_burn=True; later you can add a mask to set False for water bodies
-        T, T_burn = update_fire_state_for_cell(latitude, longitude, prob, can_burn=True)
+        T, T_burn = update_fire_state_for_cell_blocked(latitude, longitude, prob, can_burn=True)
 
         # Attach T and T_burn to API response
         result["T"] = T
@@ -267,7 +278,7 @@ def predict_nn():
 
         latitude = float(data["latitude"])
         longitude = float(data["longitude"])
-        T, T_burn = update_fire_state_for_cell(latitude, longitude, prob, can_burn=True)
+        T, T_burn = update_fire_state_for_cell_blocked(latitude, longitude, prob, can_burn=True)
 
         result["T"] = T
         result["T_burn"] = T_burn
@@ -286,6 +297,91 @@ def predict_nn():
 # -------------------------    
 @app.route("/predict-horizon", methods=["POST"])
 def predict_horizon():
+    """
+    Simulate T, T+1, T+2, ... by reusing the same features.
+    Body example:
+    {
+      "model": "random_forest",
+      "horizon": 5,
+      "latitude": 40,
+      "longitude": -120,
+      "brightness": 310,
+      "bright_t31": 290,
+      "confidence": 80,
+      "daynight": 1,
+      "elevation": 200,
+      "slope": 5,
+      "aspect": 0,
+      "temp": 30,
+      "humidity": 40,
+      "wind_speed": 6,
+      "precip": 0,
+      "month": 8
+    }
+    """
+    try:
+        data = request.get_json(silent=True)
+        if data is None:
+            return jsonify({"error": "Invalid or missing JSON body"}), 400
+
+        model_name = data.get("model", "random_forest")
+        allowed = ["random_forest", "logistic_regression", "pytorch_nn"]
+        if model_name not in allowed:
+            return jsonify({"error": "Invalid model", "allowed": allowed}), 400
+
+        try:
+            latitude = float(data["latitude"])
+            longitude = float(data["longitude"])
+        except (KeyError, ValueError):
+            return jsonify({"error": "latitude and longitude are required and must be numeric"}), 400
+
+        horizon = int(data.get("horizon", 5))  # default 5 steps if not given
+        if horizon <= 0:
+            return jsonify({"error": "horizon must be > 0"}), 400
+
+        # Base feature set: everything except model & horizon
+        base_features = {k: v for k, v in data.items() if k not in ("model", "horizon")}
+
+        trajectory = []
+
+        for step_index in range(horizon):
+            # Build the input for this step (reuse same features)
+            step_data = dict(base_features)
+            step_data["model"] = model_name
+
+            # 1) Run model
+            result = predict_fire_spread(step_data, model_name=model_name)
+            prob = float(result.get("spread_probability", 0.0))
+
+            # 2) Update T / T_burn for this **block** (we'll hook blocks in next section)
+            T, T_burn = update_fire_state_for_cell_blocked(latitude, longitude, prob)
+
+            # 3) Log prediction if you want
+            log_prediction_to_db(model_name, step_data, result)
+
+            # 4) Append step info
+            trajectory.append({
+                "step_index": step_index,   # 0 = T, 1 = T+1, ...
+                "spread_probability": prob,
+                "prediction": result.get("prediction"),
+                "T": T,
+                "T_burn": T_burn
+            })
+
+        return jsonify({
+            "latitude": latitude,
+            "longitude": longitude,
+            "model": model_name,
+            "horizon": horizon,
+            "trajectory": trajectory
+        })
+
+    except Exception as e:
+        return jsonify({
+            "error": "unexpected error in /predict-horizon",
+            "detail": str(e),
+        }), 500
+
     try:
         payload = request.get_json(silent=True)
         if payload is None:
