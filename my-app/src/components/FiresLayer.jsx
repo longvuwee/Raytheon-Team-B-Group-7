@@ -3,7 +3,7 @@ import { Entity } from "@openglobus/og";
 import makeSquareIcon from "../utils/dataPoints";
 import filterClusteredOutliers from "../utils/filterClusters";
 
-export default function FiresLayer({ globus }) {
+export default function FiresLayer({ globus, selectedDate }) {
   useEffect(() => {
     if (!globus) return;
     const layer = globus.planet.getLayerByName("Fires");
@@ -32,7 +32,13 @@ export default function FiresLayer({ globus }) {
           return;
         }
 
-        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fires?select=latitude,longitude`;
+        // Build date filter: 1-hour window from selectedDate
+        const startDate = new Date(selectedDate);
+        const endDate = new Date(selectedDate.getTime() + 3600000); // +1 hour
+        const startISO = startDate.toISOString().replace('T', ' ').substring(0, 19);
+        const endISO = endDate.toISOString().replace('T', ' ').substring(0, 19);
+
+        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fires?select=latitude,longitude&datetime=gte.${startISO}&datetime=lt.${endISO}`;
         const res = await fetch(url, {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -54,7 +60,7 @@ export default function FiresLayer({ globus }) {
 
         // Keep only clustered points (remove isolated points)
         const clustered = filterClusteredOutliers(allPoints, 5, 4);
-        console.log(`Loaded ${allPoints.length} points, keeping ${clustered.length} clustered points`);
+        console.log(`FiresLayer: Loaded ${allPoints.length} points for ${startISO}, keeping ${clustered.length} clustered`);
 
         for (const p of clustered) {
           if (cancelled) break;
@@ -68,9 +74,11 @@ export default function FiresLayer({ globus }) {
 
     return () => {
       cancelled = true;
+      // Remove all entities when date changes
+      entities.forEach(e => layer.remove(e));
       cam.events.off("move", sync); cam.events.off("zoom", sync); cam.events.off("moveend", sync);
     };
-  }, [globus]);
+  }, [globus, selectedDate]);
 
   return null;
 }

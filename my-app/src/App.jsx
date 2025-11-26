@@ -24,6 +24,18 @@ export default function App() {
   // Base-map toggle
   const [base, setBase] = useState("OSM");
 
+  // Date range state
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+  const [endDate, setEndDate] = useState(() => {
+    const d = new Date();
+    d.setHours(23, 59, 59, 999);
+    return d;
+  });
+
   // Visualization mode + layer visibility for the left panel
   const [vizMode, setVizMode] = useState("KDE Heatmap");
   const [layers, setLayers] = useState({
@@ -49,9 +61,9 @@ export default function App() {
   // Intro overlay
   const [showIntro, setShowIntro] = useState(true);
 
-  // Timeline state (Dallas time)
-  const { tz, now, end, sliderIdx, setSliderIdx, selectedDate } =
-    useTimeline("America/Chicago");
+  // Timeline state with custom date range
+  const { tz, now, end, sliderIdx, setSliderIdx, selectedDate, maxHours } =
+    useTimeline("America/Chicago", startDate, endDate);
 
   const handleBaseChange = (name) => {
     if (name === base) return;
@@ -68,10 +80,10 @@ export default function App() {
         initialView={initialView}
       />
 
-      <HeatmapOverlayLayer globeRef={globeRef} />
+      <HeatmapOverlayLayer globeRef={globeRef} selectedDate={selectedDate} />
 
       {/* === Data Layers === */}
-      <FiresLayer globus={globeRef.current?.getGlobus?.()} />
+      <FiresLayer globus={globeRef.current?.getGlobus?.()} selectedDate={selectedDate} />
 
       {/* === Overlay UI === */}
       <div className="ui-overlay">
@@ -85,6 +97,10 @@ export default function App() {
           setVizMode={setVizMode}
           layers={layers}
           setLayers={setLayers}
+          startDate={startDate}
+          endDate={endDate}
+          onStartDateChange={setStartDate}
+          onEndDateChange={setEndDate}
         />
 
         <LayerPanel />
@@ -98,6 +114,7 @@ export default function App() {
           sliderIdx={sliderIdx}
           setSliderIdx={setSliderIdx}
           selectedDate={selectedDate}
+          maxHours={maxHours}
         />
       </div>
 

@@ -2,11 +2,12 @@ import { useEffect } from "react";
 import { GeoImage, LonLat } from "@openglobus/og";
 import makeDensityHeatmap from "../utils/makeDensityHeatMap";
 
-export default function HeatmapOverlayLayer({ globeRef }) {
+export default function HeatmapOverlayLayer({ globeRef, selectedDate }) {
   useEffect(() => {
     const globus = globeRef.current?.getGlobus?.();
     if (!globus) return;
     let cancelled = false;
+    let heatmapLayer = null;
 
     (async () => {
       try {
@@ -18,7 +19,13 @@ export default function HeatmapOverlayLayer({ globeRef }) {
           return;
         }
 
-        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fires?select=latitude,longitude`;
+        // Build date filter: 1-hour window from selectedDate
+        const startDate = new Date(selectedDate);
+        const endDate = new Date(selectedDate.getTime() + 3600000); // +1 hour
+        const startISO = startDate.toISOString().replace('T', ' ').substring(0, 19);
+        const endISO = endDate.toISOString().replace('T', ' ').substring(0, 19);
+
+        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fires?select=latitude,longitude&datetime=gte.${startISO}&datetime=lt.${endISO}`;
         const res = await fetch(url, {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -37,6 +44,8 @@ export default function HeatmapOverlayLayer({ globeRef }) {
             return isFinite(lat) && isFinite(lon) ? { lon, lat } : null;
           })
           .filter(Boolean);
+        
+        console.log(`HeatmapOverlay: Loaded ${pts.length} points for ${startISO}`);
         if (!pts.length || cancelled) return;
 
         /*
@@ -71,7 +80,7 @@ export default function HeatmapOverlayLayer({ globeRef }) {
         const [minLon, minLat, maxLon, maxLat] = bbox;
 
         // === 4. Create GeoImage overlay ===
-        const heatmapImage = new GeoImage("Wildfire Heatmap", {
+        heatmapLayer = new GeoImage("Wildfire Heatmap", {
           src: imageDataUrl, // dynamically generated PNG
           corners: [
             [minLon, minLat],
@@ -86,12 +95,12 @@ export default function HeatmapOverlayLayer({ globeRef }) {
         });
 
         // === 5. Add it above base layers ===
-        globus.planet.addLayer(heatmapImage);
+        globus.planet.addLayer(heatmapLayer);
         const planet = globus.planet;
-        planet.removeLayer(heatmapImage);
-        planet.addLayer(heatmapImage);
+        planet.removeLayer(heatmapLayer);
+        planet.addLayer(heatmapLayer);
 
-        // === 6. Center camera on data ===
+        // === 6. Center camera on data (only on first load) ===
         const midLon = (minLon + maxLon) / 2;
         const midLat = (minLat + maxLat) / 2;
         planet.camera.flyLonLat(new LonLat(midLon, midLat, 1500000));
@@ -104,8 +113,12 @@ export default function HeatmapOverlayLayer({ globeRef }) {
 
     return () => {
       cancelled = true;
+      // Remove heatmap layer when date changes
+      if (heatmapLayer && globus?.planet) {
+        globus.planet.removeLayer(heatmapLayer);
+      }
     };
-  }, [globeRef]);
+  }, [globeRef, selectedDate]);
 
   return null;
 }

@@ -1,4 +1,9 @@
+import { useState } from "react";
 import CollapsiblePanel from "./CollapsiblePanel";
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import dayjs from 'dayjs';
 
 export default function LeftInfoPanel({
   offsetLeft = 0,
@@ -16,12 +21,35 @@ export default function LeftInfoPanel({
     "MODIS Hotspots": true,
   },
   setLayers = () => {},
+
+  startDate = new Date(),
+  endDate = new Date(),
+  onStartDateChange = () => {},
+  onEndDateChange = () => {},
 }) {
   const handleLayerChange = (key) => {
     setLayers({
       ...layers,
       [key]: !layers[key],
     });
+  };
+
+  const handleStartDateChange = (newValue) => {
+    // Only update if the date is valid
+    if (newValue && newValue.isValid()) {
+      const date = newValue.toDate();
+      date.setHours(0, 0, 0, 0);
+      onStartDateChange(date);
+    }
+  };
+
+  const handleEndDateChange = (newValue) => {
+    // Only update if the date is valid
+    if (newValue && newValue.isValid()) {
+      const date = newValue.toDate();
+      date.setHours(23, 59, 59, 999);
+      onEndDateChange(date);
+    }
   };
 
   return (
@@ -32,6 +60,48 @@ export default function LeftInfoPanel({
       offsetLeft={offsetLeft}
       behindSidebar={behindSidebar}
     >
+      {/* === Date Range Selection === */}
+      <section className="panel-section">
+        <label className="field-label">Date Range</label>
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <div className="date-range-inputs">
+            <div className="date-input-group">
+              <label className="date-sublabel">Start Date</label>
+              <DatePicker
+                value={dayjs(startDate)}
+                onChange={handleStartDateChange}
+                maxDate={dayjs(endDate)}
+                format="MM/DD/YYYY"
+                slotProps={{
+                  textField: {
+                    className: 'mui-date-picker',
+                    placeholder: 'MM/DD/YYYY',
+                  }
+                }}
+              />
+            </div>
+            <div className="date-input-group">
+              <label className="date-sublabel">End Date</label>
+              <DatePicker
+                value={dayjs(endDate)}
+                onChange={handleEndDateChange}
+                minDate={dayjs(startDate)}
+                format="MM/DD/YYYY"
+                slotProps={{
+                  textField: {
+                    className: 'mui-date-picker',
+                    placeholder: 'MM/DD/YYYY',
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </LocalizationProvider>
+        <p className="field-helper">
+          Select a date range to visualize fire data. Use the timeline slider to navigate hours within this range.
+        </p>
+      </section>
+
       {/* === Base Map as OSM / SAT / Topo buttons === */}
       <section className="panel-section">
         <label className="field-label">Base Map</label>
