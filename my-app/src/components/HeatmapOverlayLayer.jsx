@@ -2,9 +2,15 @@ import { useEffect } from "react";
 import { GeoImage, LonLat } from "@openglobus/og";
 import makeDensityHeatmap from "../utils/makeDensityHeatMap";
 
-export default function HeatmapOverlayLayer({ globeRef, selectedDate }) {
+export default function HeatmapOverlayLayer({ globeRef, startDate, endDate }) {
   useEffect(() => {
+    console.log("HeatmapOverlay: useEffect triggered", { 
+      hasGlobeRef: !!globeRef?.current,
+      startDate,
+      endDate
+    });
     const globus = globeRef.current?.getGlobus?.();
+    console.log("HeatmapOverlay: globus obtained", { hasGlobus: !!globus });
     if (!globus) return;
     let cancelled = false;
     let heatmapLayer = null;
@@ -14,18 +20,22 @@ export default function HeatmapOverlayLayer({ globeRef, selectedDate }) {
         // === 1. Load points from Supabase ===
         const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
         const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        console.log("HeatmapOverlay: Supabase config", { 
+          hasUrl: !!SUPABASE_URL, 
+          hasKey: !!SUPABASE_ANON_KEY,
+          url: SUPABASE_URL 
+        });
         if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
           console.error("Supabase not configured (VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY missing)");
           return;
         }
 
-        // Build date filter: 1-hour window from selectedDate
-        const startDate = new Date(selectedDate);
-        const endDate = new Date(selectedDate.getTime() + 3600000); // +1 hour
-        const startISO = startDate.toISOString().replace('T', ' ').substring(0, 19);
-        const endISO = endDate.toISOString().replace('T', ' ').substring(0, 19);
+        // Build date filter: use provided date range
+        const startISO = new Date(startDate).toISOString().replace('T', ' ').substring(0, 19);
+        const endISO = new Date(endDate).toISOString().replace('T', ' ').substring(0, 19);
 
         const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fires?select=latitude,longitude&datetime=gte.${startISO}&datetime=lt.${endISO}`;
+        console.log("HeatmapOverlay: Fetching from", url);
         const res = await fetch(url, {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -33,10 +43,12 @@ export default function HeatmapOverlayLayer({ globeRef, selectedDate }) {
             Accept: "application/json",
           },
         });
+        console.log("HeatmapOverlay: Fetch response", { status: res.status, ok: res.ok });
         if (!res.ok) {
           throw new Error(`Supabase fetch failed: ${res.status} ${res.statusText}`);
         }
         const rows = await res.json();
+        console.log("HeatmapOverlay: Received rows", rows.length);
         const pts = rows
           .map((r) => {
             const lat = parseFloat(r.latitude);
@@ -48,27 +60,6 @@ export default function HeatmapOverlayLayer({ globeRef, selectedDate }) {
         console.log(`HeatmapOverlay: Loaded ${pts.length} points for ${startISO}`);
         if (!pts.length || cancelled) return;
 
-        /*
-         If you want to use the local CSV during preview instead of Supabase,
-         uncomment the block below and comment out the Supabase fetch above.
-
-        // === Local CSV fallback (commented on purpose) ===
-        // const res = await fetch("/data/fires_labeled_with_perimeter_labels.csv");
-        // const text = await res.text();
-        // const lines = text.split(/\r?\n/).filter(Boolean);
-        // if (lines.length < 2) return;
-        // const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
-        // const latIdx = headers.findIndex((h) => ["latitude", "lat", "lat_dd"].includes(h));
-        // const lonIdx = headers.findIndex((h) => ["longitude", "lon", "lon_dd"].includes(h));
-        // if (latIdx === -1 || lonIdx === -1) return;
-        // const pts = [];
-        // for (let i = 1; i < lines.length; i++) {
-        //   const row = lines[i].split(",");
-        //   const lat = parseFloat(row[latIdx]);
-        //   const lon = parseFloat(row[lonIdx]);
-        //   if (isFinite(lat) && isFinite(lon)) pts.push({ lon, lat });
-        // }
-        */
 
         // === 3. Generate one heatmap image from points ===
         const { imageDataUrl, bbox } = makeDensityHeatmap(pts);
@@ -118,7 +109,7 @@ export default function HeatmapOverlayLayer({ globeRef, selectedDate }) {
         globus.planet.removeLayer(heatmapLayer);
       }
     };
-  }, [globeRef, selectedDate]);
+  }, [globeRef, startDate, endDate]);
 
   return null;
 }

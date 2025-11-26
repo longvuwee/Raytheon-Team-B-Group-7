@@ -97,9 +97,9 @@ export default function App() {
     return () => clearInterval(checkGlobe);
   }, []);
 
-  // Timeline state (Dallas time)
+  // Timeline state (Dallas time) - now connected to date range
   const { tz, now, end, sliderIdx, setSliderIdx, selectedDate, maxHours } =
-    useTimeline("America/Chicago");
+    useTimeline("America/Chicago", startDate, endDate);
 
   const handleBaseChange = (name) => {
     if (name === base) return;
@@ -145,8 +145,8 @@ export default function App() {
             {/* Only render data layers once globe is ready */}
             {globeReady && (
               <>
-                <HeatmapOverlayLayer globeRef={globeRef} selectedDate={selectedDate} />
-                <FiresLayer globus={globeRef.current?.getGlobus?.()} selectedDate={selectedDate} />
+                <HeatmapOverlayLayer globeRef={globeRef} startDate={startDate} endDate={endDate} />
+                <FiresLayer globus={globeRef.current?.getGlobus?.()} startDate={startDate} endDate={endDate} />
               </>
             )}
 
