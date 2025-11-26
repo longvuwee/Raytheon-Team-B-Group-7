@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import "./index.css";
 import "./App.css";
 
@@ -12,7 +12,8 @@ import LayerPanel from "./components/RightInfoPanel";
 import Logo from "./components/Logo";
 import Header from "./components/Header";
 import HeatmapOverlayLayer from "./components/HeatmapOverlayLayer";
-
+import Creators from "./components/Creators";
+import SearchBar from "./components/SearchBar";
 
 /* ---- Hooks ---- */
 import useTimeline from "./hooks/useTimeline";
@@ -20,6 +21,12 @@ import useTimeline from "./hooks/useTimeline";
 export default function App() {
   // Imperative handle to the globe component
   const globeRef = useRef(null);
+  
+  // Track when globe is ready
+  const [globeReady, setGlobeReady] = useState(false);
+
+  // Navigation state
+  const [currentView, setCurrentView] = useState('map');
 
   // Base-map toggle
   const [base, setBase] = useState("OSM");
@@ -44,15 +51,6 @@ export default function App() {
     "MODIS Hotspots": true,
   });
 
-  // Model and forecast settings for the right panel
-  const [model, setModel] = useState("Neural Network");
-
-  const [forecastSettings, setForecastSettings] = useState({
-    horizon: "12 hours",
-    display: "Heatmap",
-    threshold: 75,
-  });
-
   // Keep this stable so GlobeCanvas doesn't re-init
   const initialView = useMemo(
     () => ({ lon: -120.583, lat: 35.263, height: 2000000 }),
@@ -62,9 +60,46 @@ export default function App() {
   // Intro overlay
   const [showIntro, setShowIntro] = useState(true);
 
-  // Timeline state with custom date range
+  // Handle hash-based navigation
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1); // Remove the #
+      if (hash === '/creators') {
+        setCurrentView('creators');
+      } else if (hash === '/api') {
+        setCurrentView('api');
+      } else if (hash === '/sources') {
+        setCurrentView('sources');
+      } else if (hash === '/docs') {
+        setCurrentView('docs');
+      } else {
+        setCurrentView('map');
+      }
+    };
+
+    // Listen for hash changes
+    window.addEventListener('hashchange', handleHashChange);
+    // Handle initial hash
+    handleHashChange();
+
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // Check when globe is ready
+  useEffect(() => {
+    const checkGlobe = setInterval(() => {
+      if (globeRef.current?.getGlobus?.()) {
+        setGlobeReady(true);
+        clearInterval(checkGlobe);
+      }
+    }, 100);
+    
+    return () => clearInterval(checkGlobe);
+  }, []);
+
+  // Timeline state (Dallas time)
   const { tz, now, end, sliderIdx, setSliderIdx, selectedDate, maxHours } =
-    useTimeline("America/Chicago", startDate, endDate);
+    useTimeline("America/Chicago");
 
   const handleBaseChange = (name) => {
     if (name === base) return;
@@ -72,59 +107,100 @@ export default function App() {
     globeRef.current?.setBase?.(name); // call GlobeCanvas' imperative API
   };
 
+  const renderContent = () => {
+    switch (currentView) {
+      case 'creators':
+        return <Creators />;
+      case 'api':
+        return (
+          <div className="page-content">
+            <h1>API Documentation</h1>
+            <p>API documentation coming soon...</p>
+          </div>
+        );
+      case 'sources':
+        return (
+          <div className="page-content">
+            <h1>Data Sources</h1>
+            <p>Data sources information coming soon...</p>
+          </div>
+        );
+      case 'docs':
+        return (
+          <div className="page-content">
+            <h1>Documentation</h1>
+            <p>Documentation coming soon...</p>
+          </div>
+        );
+      default:
+        return (
+          <>
+            {/* === Globe === */}
+            <GlobeCanvas
+              ref={globeRef}
+              className="globe"
+              initialView={initialView}
+            />
+
+            {/* Only render data layers once globe is ready */}
+            {globeReady && (
+              <>
+                <HeatmapOverlayLayer globeRef={globeRef} selectedDate={selectedDate} />
+                <FiresLayer globus={globeRef.current?.getGlobus?.()} selectedDate={selectedDate} />
+              </>
+            )}
+
+            {/* === Overlay UI === */}
+            <div className="ui-overlay">
+              {/* === Change to layers panel === */}
+              <LeftInfoPanel
+                baseMap={base}
+                onBaseMapChange={handleBaseChange}
+                vizMode={vizMode}
+                setVizMode={setVizMode}
+                layers={layers}
+                setLayers={setLayers}
+                startDate={startDate}
+                endDate={endDate}
+                onStartDateChange={setStartDate}
+                onEndDateChange={setEndDate}
+              />
+
+              <LayerPanel />
+
+              <Timeline
+                tz={tz}
+                now={now}
+                end={end}
+                sliderIdx={sliderIdx}
+                setSliderIdx={setSliderIdx}
+                selectedDate={selectedDate}
+                maxHours={maxHours}
+              />
+            </div>
+
+            {/* === Intro === */}
+            <IntroOverlay
+              show={showIntro}
+              onClose={() => setShowIntro(false)}
+              Logo={<Logo className="intro-logo" />}
+            />
+          </>
+        );
+    }
+  };
+
   return (
     <div className="app-root">
-      {/* === Globe === */}
-      <GlobeCanvas
-        ref={globeRef}
-        className="globe"
-        initialView={initialView}
+      <Header 
+        currentView={currentView}
+        globeRef={globeRef}
+        SearchBar={SearchBar}
+        onLocationSelect={(location) => {
+          console.log('Location selected:', location);
+        }}
       />
-
-      <HeatmapOverlayLayer globeRef={globeRef} selectedDate={selectedDate} />
-
-      {/* === Data Layers === */}
-      <FiresLayer globus={globeRef.current?.getGlobus?.()} selectedDate={selectedDate} />
-
-      {/* === Overlay UI === */}
-      <div className="ui-overlay">
-        <Header />
-
-        {/* === Change to layers panel === */}
-        <LeftInfoPanel
-          baseMap={base}
-          onBaseMapChange={handleBaseChange}
-          vizMode={vizMode}
-          setVizMode={setVizMode}
-          layers={layers}
-          setLayers={setLayers}
-          startDate={startDate}
-          endDate={endDate}
-          onStartDateChange={setStartDate}
-          onEndDateChange={setEndDate}
-        />
-
-        <LayerPanel />
-
-        {/* <BaseSwitch value={base} onChange={handleBaseChange} /> */}
-
-        <Timeline
-          tz={tz}
-          now={now}
-          end={end}
-          sliderIdx={sliderIdx}
-          setSliderIdx={setSliderIdx}
-          selectedDate={selectedDate}
-          maxHours={maxHours}
-        />
-      </div>
-
-      {/* === Intro === */}
-      <IntroOverlay
-        show={showIntro}
-        onClose={() => setShowIntro(false)}
-        Logo={<Logo className="intro-logo" />}
-      />
+      {renderContent()}
     </div>
   );
 }
