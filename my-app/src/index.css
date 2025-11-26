@@ -45,21 +45,22 @@ html, body, #root {
   z-index: 1 !important; /* stays above globe, below overlays */
   position: absolute !important;
   bottom: 15px !important;
-  right: 300px !important;
+  right: 290px !important;
 }
 
 .og-scale-label {
-  color: white ;
+  color: rgb(60, 60, 60) ;
   text-align: center;
   pointer-events: none ;
   font-size: 12px;
+  font-weight: 600;
 }
 
 .og-scale-ruler {
   height: 7px;
-  border-left: 2px solid white ;
-  border-right: 2px solid white ;
-  border-bottom: 2px solid white ;
+  border-left: 2px solid rgb(60, 60, 60) ;
+  border-right: 2px solid rgb(60, 60, 60) ;
+  border-bottom: 2px solid rgb(60, 60, 60) ;
   pointer-events: none ;
 }
 
@@ -137,7 +138,6 @@ html, body, #root {
   top: 80px !important;  /* ➖ at the rightmost, below header */
   left: 118px !important;
   right: auto !important;
->>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
 }
 
 .og-compass-button svg {
@@ -157,7 +157,6 @@ html, body, #root {
   fill: var(--accent) !important;
   color: var(--accent) !important;
   transform: translateY(-1px) !important;
->>>>>>> e0d14416949a38f37369c54972b3bd6180ce24c8
 }
 .og-compass-button:active,
 .og-zoomin-button:active,
@@ -205,6 +204,57 @@ html, body, #root {
 .field-select:focus {
   outline: 1px solid var(--accent);
   border-color: var(--accent);
+}
+
+/* Date input styling */
+.date-range-inputs {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 6px;
+}
+
+.date-sublabel {
+  font-size: 0.85rem;
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.date-sublabel {
+  font-size: 0.85rem;
+  color: #ffffff;
+  font-weight: 500;
+}
+
+/* MUI Date Picker Styling */
+.mui-date-picker {
+  width: 100%;
+}
+
+.mui-date-picker .MuiSvgIcon-root {
+  color: #ffffff;
+}
+
+.MuiPickersDay-root.Mui-selected {
+  background-color: var(--accent) !important;
+  color: #ffffff;
+}
+
+/* MUI Date Picker Input Background */
+.MuiPickersInputBase-root {
+  background-color: rgba(10, 10, 10, 0.6) !important;
+  color: #ffffff !important;
+  
+}
+
+.MuiPickersInputBase-root input {
+  color: #ffffff !important;
+}
+
+.MuiPickersInputBase-root.Mui-focused fieldset {
+  border-color: #FF844A !important;
+  border-width: 2px !important;
 }
 
 /* Box that groups checkboxes / text (like the example screenshot) */

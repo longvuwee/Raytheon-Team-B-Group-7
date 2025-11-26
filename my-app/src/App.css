@@ -180,12 +180,18 @@
   align-items: center;
   gap: 16px;
   pointer-events: auto;
+  
 }
 
 .timeline-label {
   color: #fff;
   font-size: 12px;
   font-weight: 400;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  padding: 8px 12px;
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
 }
 
 .timeline-range {
@@ -254,27 +260,6 @@
   opacity: 0.85;
 }
 
-/* ===== Responsive niceties ===== */
-/*
-@media (max-width: 920px) {
-  .panel-left {
-    left: 16px;
-    width: 280px;
-  }
-  .panel-right {
-    right: 16px;
-    width: 220px;
-  }
-  .base-switch {
-    left: 88px;
-  }
-  .timeline {
-    left: 60px;
-    right: 60px;
-  }
-}
-  */
-
 /* --- Collapsible side panels --- */
 .collapsible {
   position: absolute;
@@ -288,10 +273,12 @@
 }
 
 /* left vs right anchor */
-.collapsible.left  { left: 10px; }
+.collapsible.left  { 
+  left: 10px; 
+}
 .collapsible.right { 
-  right: 10px; /* Keep normal distance from edge since zoom controls are now on left */
-  width: 420px; /* Make it much wider */
+  right: 14px;
+  width: 420px;
   max-width: min(90vw, 450px);
 }
 

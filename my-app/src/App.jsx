@@ -21,6 +21,9 @@ import useTimeline from "./hooks/useTimeline";
 export default function App() {
   // Imperative handle to the globe component
   const globeRef = useRef(null);
+  
+  // Track when globe is ready
+  const [globeReady, setGlobeReady] = useState(false);
 
   // Navigation state
   const [currentView, setCurrentView] = useState('map');
@@ -28,20 +31,24 @@ export default function App() {
   // Base-map toggle
   const [base, setBase] = useState("OSM");
 
+  // Date range state
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+  const [endDate, setEndDate] = useState(() => {
+    const d = new Date();
+    d.setHours(23, 59, 59, 999);
+    return d;
+  });
+
   // Visualization mode + layer visibility for the left panel
   const [vizMode, setVizMode] = useState("KDE Heatmap");
   const [layers, setLayers] = useState({
     "Predicted Spread": true,
     "2025 Fire Perimeters": true,
     "MODIS Hotspots": true,
-  });
-
-  const [model, setModel] = useState("Neural Network");
-
-  const [forecastSettings, setForecastSettings] = useState({
-    horizon: "12 hours",
-    display: "Heatmap",
-    threshold: 75,
   });
 
   // Keep this stable so GlobeCanvas doesn't re-init
@@ -78,9 +85,21 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Timeline state (Dallas time)
-  const { tz, now, end, sliderIdx, setSliderIdx, selectedDate } =
-    useTimeline("America/Chicago");
+  // Check when globe is ready
+  useEffect(() => {
+    const checkGlobe = setInterval(() => {
+      if (globeRef.current?.getGlobus?.()) {
+        setGlobeReady(true);
+        clearInterval(checkGlobe);
+      }
+    }, 100);
+    
+    return () => clearInterval(checkGlobe);
+  }, []);
+
+  // Timeline state (Dallas time) - now connected to date range
+  const { tz, now, end, sliderIdx, setSliderIdx, selectedDate, maxHours } =
+    useTimeline("America/Chicago", startDate, endDate);
 
   const handleBaseChange = (name) => {
     if (name === base) return;
@@ -123,10 +142,13 @@ export default function App() {
               initialView={initialView}
             />
 
-            <HeatmapOverlayLayer globeRef={globeRef} />
-
-            {/* === Data Layers === */}
-            <FiresLayer globus={globeRef.current?.getGlobus?.()} />
+            {/* Only render data layers once globe is ready */}
+            {globeReady && (
+              <>
+                <HeatmapOverlayLayer globeRef={globeRef} startDate={selectedDate} endDate={endDate} />
+                <FiresLayer globus={globeRef.current?.getGlobus?.()} startDate={selectedDate} endDate={endDate} />
+              </>
+            )}
 
             {/* === Overlay UI === */}
             <div className="ui-overlay">
@@ -138,15 +160,13 @@ export default function App() {
                 setVizMode={setVizMode}
                 layers={layers}
                 setLayers={setLayers}
+                startDate={startDate}
+                endDate={endDate}
+                onStartDateChange={setStartDate}
+                onEndDateChange={setEndDate}
               />
 
-              <LayerPanel 
-                model={model}
-                setModel={setModel}
-                forecastSettings={forecastSettings}
-                setForecastSettings={setForecastSettings}
-                onRunForecast={() => console.log('Running forecast with settings:', forecastSettings)}
-              />
+              <LayerPanel />
 
               <Timeline
                 tz={tz}
@@ -155,6 +175,7 @@ export default function App() {
                 sliderIdx={sliderIdx}
                 setSliderIdx={setSliderIdx}
                 selectedDate={selectedDate}
+                maxHours={maxHours}
               />
             </div>
 
