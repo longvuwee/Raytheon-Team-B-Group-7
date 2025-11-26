@@ -39,6 +39,8 @@ nn_model.eval()
 # ------------------------------------------------------------
 # Core prediction function
 # ------------------------------------------------------------
+PREDICTION_THRESHOLD = 0.75  # 75% threshold for saying "Spread"
+
 def predict_fire_spread(data: dict, model_name="random_forest"):
     """
     data: dict of features, e.g.
@@ -81,11 +83,15 @@ def predict_fire_spread(data: dict, model_name="random_forest"):
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
+    prob = float(prob)
+
     return {
         "model": model_name,
-        "spread_probability": float(prob),
-        "prediction": "Spread" if prob >= 0.5 else "No Spread"
+        "spread_probability": prob,
+        "prediction": "Spread" if prob >= PREDICTION_THRESHOLD else "No Spread"
     }
+
+
 if __name__ == "__main__":
     sample = {
         "latitude": 37.2,
