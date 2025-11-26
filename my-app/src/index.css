@@ -45,21 +45,22 @@ html, body, #root {
   z-index: 1 !important; /* stays above globe, below overlays */
   position: absolute !important;
   bottom: 15px !important;
-  right: 275px !important;
+  right: 290px !important;
 }
 
 .og-scale-label {
-  color: white ;
+  color: rgb(60, 60, 60) ;
   text-align: center;
   pointer-events: none ;
   font-size: 12px;
+  font-weight: 600;
 }
 
 .og-scale-ruler {
   height: 7px;
-  border-left: 2px solid white ;
-  border-right: 2px solid white ;
-  border-bottom: 2px solid white ;
+  border-left: 2px solid rgb(60, 60, 60) ;
+  border-right: 2px solid rgb(60, 60, 60) ;
+  border-bottom: 2px solid rgb(60, 60, 60) ;
   pointer-events: none ;
 }
 
@@ -220,71 +221,8 @@ html, body, #root {
   width: 100%;
 }
 
-.mui-date-picker .MuiInputBase-root {
-  background: rgba(10, 10, 10, 0.6);
-  border-radius: 4px;
-  color: #ffffff;
-  font-size: 0.9rem;
-}
-
-.mui-date-picker .MuiInputBase-input {
-  padding: 0.35rem 0.5rem;
-  color: #ffffff;
-}
-
-.mui-date-picker .MuiOutlinedInput-notchedOutline {
-  border-color: rgba(255, 255, 255, 0.18);
-}
-
-.mui-date-picker .MuiInputBase-root:hover .MuiOutlinedInput-notchedOutline {
-  border-color: rgba(255, 255, 255, 0.3);
-}
-
-.mui-date-picker .MuiInputBase-root.Mui-focused .MuiOutlinedInput-notchedOutline {
-  border-color: var(--accent);
-  border-width: 1px;
-}
-
 .mui-date-picker .MuiSvgIcon-root {
   color: #ffffff;
-}
-
-/* Color of date */
-.mui-date-picker .MuiInputBase-input::placeholder {
-  color: #4afa4a;
-  opacity: 1;
-}
-
-/* MUI Popper (Calendar Popup) Dark Theme */
-.MuiPickersPopper-root {
-  z-index: 10002 !important;
-}
-
-.MuiPaper-root.MuiPickersPopper-paper {
-  background: rgba(0, 0, 0, 0.95);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #ffffff;
-}
-
-.MuiPickersCalendarHeader-root {
-  color: #000000;
-}
-
-.MuiPickersCalendarHeader-label {
-  color: #000000;
-}
-
-.MuiDayCalendar-weekDayLabel {
-  color: #cccccc;
-}
-
-.MuiPickersDay-root {
-  color: #ffffff;
-}
-
-.MuiPickersDay-root:hover {
-  background-color: rgba(255, 132, 74, 0.2);
 }
 
 .MuiPickersDay-root.Mui-selected {
@@ -292,24 +230,20 @@ html, body, #root {
   color: #ffffff;
 }
 
-.MuiPickersDay-root.Mui-selected:hover {
-  background-color: var(--accent-strong) !important;
+/* MUI Date Picker Input Background */
+.MuiPickersInputBase-root {
+  background-color: rgba(10, 10, 10, 0.6) !important;
+  color: #ffffff !important;
+  
 }
 
-.MuiPickersDay-root.Mui-disabled {
-  color: #666;
+.MuiPickersInputBase-root input {
+  color: #ffffff !important;
 }
 
-.MuiIconButton-root {
-  color: #ffffff;
-}
-
-.MuiIconButton-root:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-}
-
-.date-picker {
-  cursor: pointer;
+.MuiPickersInputBase-root.Mui-focused fieldset {
+  border-color: #FF844A !important;
+  border-width: 2px !important;
 }
 
 /* Box that groups checkboxes / text (like the example screenshot) */

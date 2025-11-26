@@ -180,12 +180,18 @@
   align-items: center;
   gap: 16px;
   pointer-events: auto;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  padding: 8px 12px;
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
 }
 
 .timeline-label {
   color: #fff;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 400;
+  white-space: nowrap;
 }
 
 .timeline-range {
@@ -198,11 +204,6 @@
   min-width: 200px;
   text-align: center;
   color: #fff;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  padding: 6px 10px;
-  border-radius: 8px;
-  backdrop-filter: blur(6px);
   white-space: nowrap;
 }
 

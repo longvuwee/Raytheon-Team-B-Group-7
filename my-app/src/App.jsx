@@ -44,6 +44,7 @@ export default function App() {
     "MODIS Hotspots": true,
   });
 
+  // Model and forecast settings for the right panel
   const [model, setModel] = useState("Neural Network");
 
   const [forecastSettings, setForecastSettings] = useState({
