@@ -214,11 +214,9 @@ export default function SearchBar({ onLocationSelect, globeRef }) {
             type="text"
             value={query}
             onChange={handleInputChange}
-            onFocus={(e) => e.target.select()}
-            onClick={(e) => e.target.select()}
             placeholder="Search cities, states, countries..."
             className="search-input"
-            disabled={isSearching}
+            autoComplete="off"
           />
           <div className="search-status">
             {isSearching ? "🔍" : "📍"}

@@ -30,15 +30,24 @@ export default function Header({ currentView, globeRef, SearchBar, onLocationSel
 
       {/* Right: Navigation links */}
       <nav className="header-nav" role="navigation" aria-label="Primary">
-        {SECTIONS.map((s) => (
-          <a 
-            key={s.title} 
-            className={`header-link ${s.title === 'Map' ? 'header-link-bold' : ''}`} 
-            href={s.href}
-          >
-            {s.title}
-          </a>
-        ))}
+        {SECTIONS.map((s) => {
+          // Determine if this link is active based on currentView
+          const isActive = 
+            (s.title === 'Map' && currentView === 'map') ||
+            (s.title === 'Creators' && currentView === 'creators') ||
+            (s.title === 'API' && currentView === 'api') ||
+            (s.title === 'Docs' && currentView === 'docs');
+          
+          return (
+            <a 
+              key={s.title} 
+              className={`header-link ${isActive ? 'header-link-bold' : ''}`} 
+              href={s.href}
+            >
+              {s.title}
+            </a>
+          );
+        })}
       </nav>
     </header>
   );
