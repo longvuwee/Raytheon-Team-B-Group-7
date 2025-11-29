@@ -3,7 +3,17 @@ import { Entity, Vector } from "@openglobus/og";
 import makeSquareIcon from "../utils/dataPoints";
 import filterClusteredOutliers from "../utils/filterClusters";
 
-export default function FiresLayer({ globus, startDate, endDate }) {
+// Helper function to find nearby points within a radius (in degrees)
+function findNearbyPoints(centerPoint, allPoints, radiusDegrees) {
+  return allPoints.filter(p => {
+    const dLat = p.lat - centerPoint.lat;
+    const dLon = p.lon - centerPoint.lon;
+    const distance = Math.sqrt(dLat * dLat + dLon * dLon);
+    return distance <= radiusDegrees;
+  });
+}
+
+export default function FiresLayer({ globus, startDate, endDate, onClusterClick }) {
   useEffect(() => {
     console.log("FiresLayer: useEffect triggered", { globus: !!globus, startDate, endDate });
     if (!globus) return;
@@ -11,12 +21,12 @@ export default function FiresLayer({ globus, startDate, endDate }) {
     // Ensure the layer exists, create if missing
     let layer = globus.planet.getLayerByName("Fires");
     if (!layer) {
-      console.warn("FiresLayer: 'Fires' layer not found, attempting to recreate it");
+      console.warn("FiresLayer: 'Fires' layer not found, creating it");
       layer = new Vector("Fires");
       globus.planet.addLayer(layer);
-      console.log("FiresLayer: 'Fires' layer recreated");
+      console.log("FiresLayer: 'Fires' layer created");
     } else {
-      console.log("FiresLayer: Fires layer found, proceeding to load data");
+      console.log("FiresLayer: Fires layer found");
     }
 
     const iconURL = makeSquareIcon(32);
@@ -30,7 +40,7 @@ export default function FiresLayer({ globus, startDate, endDate }) {
       last = px; entities.forEach(e => e.billboard?.setSize(px, px));
     };
     const cam = globus.planet.camera;
-    cam.events.off("move", sync); cam.events.off("zoom", sync); cam.events.on("moveend", sync);
+    cam.events.on("moveend", sync);
 
     (async () => {
       try {
@@ -78,33 +88,84 @@ export default function FiresLayer({ globus, startDate, endDate }) {
         const clustered = filterClusteredOutliers(allPoints, 5, 4);
         console.log(`FiresLayer: Loaded ${allPoints.length} points for ${startISO}, keeping ${clustered.length} clustered`);
 
+        // Store all points with their data for cluster detection
+        const pointsWithData = clustered.map(p => ({ ...p, ...rows.find(r => 
+          parseFloat(r.latitude) === p.lat && parseFloat(r.longitude) === p.lon
+        )}));
+
         for (const p of clustered) {
           if (cancelled) break;
-          const ent = new Entity({ lonlat:[p.lon, p.lat], billboard:{ src: iconURL, size:[last,last] }});
+          const ent = new Entity({ 
+            lonlat:[p.lon, p.lat], 
+            billboard:{ src: iconURL, size:[last,last] },
+            properties: { lat: p.lat, lon: p.lon }
+          });
           layer.add(ent); 
           entities.push(ent);
         }
+        console.log(`FiresLayer: Added ${entities.length} entities`);
         sync();
+
+        // Use globe-level click detection instead of per-entity events
+        if (onClusterClick) {
+          const clickHandler = (e) => {
+            // Check if we clicked on an entity from the Fires layer
+            if (!e.pickingObject) return;
+            
+            const clickedEntity = e.pickingObject;
+            if (!clickedEntity._layer || clickedEntity._layer.name !== "Fires") return;
+            
+            console.log("FiresLayer: Fire point clicked!", clickedEntity.properties);
+            
+            // Find all nearby points within radius
+            const clickedPoint = { 
+              lat: clickedEntity.properties.lat, 
+              lon: clickedEntity.properties.lon 
+            };
+            const nearbyPoints = findNearbyPoints(clickedPoint, pointsWithData, 0.5);
+            
+            if (nearbyPoints.length > 0) {
+              const centerLat = nearbyPoints.reduce((sum, pt) => sum + pt.lat, 0) / nearbyPoints.length;
+              const centerLon = nearbyPoints.reduce((sum, pt) => sum + pt.lon, 0) / nearbyPoints.length;
+              
+              // Get screen position from mouse event
+              const globeCanvas = globus.renderer.handler.canvas;
+              const rect = globeCanvas.getBoundingClientRect();
+              
+              onClusterClick({
+                points: nearbyPoints,
+                centerLat,
+                centerLon,
+                dateRange: `${startISO.split(' ')[0]} to ${endISO.split(' ')[0]}`,
+                avgConfidence: nearbyPoints.reduce((sum, pt) => sum + (pt.confidence || 0), 0) / nearbyPoints.length
+              }, {
+                x: e.clientX || (rect.left + rect.width / 2),
+                y: e.clientY || (rect.top + rect.height / 2)
+              });
+            }
+          };
+          
+          globus.planet.renderer.events.on("lclick", clickHandler);
+          console.log("FiresLayer: Globe click handler attached");
+          
+          // Store handler reference for cleanup
+          layer._fireClickHandler = clickHandler;
+        }
       } catch(e) { console.error("Fires data load failed:", e); }
     })();
 
     return () => {
       cancelled = true;
-      // Remove all entities when date changes - ensure layer still exists
-      const currentLayer = globus?.planet?.getLayerByName("Fires");
-      if (currentLayer && entities.length > 0) {
-        console.log(`FiresLayer: Cleaning up ${entities.length} entities`);
-        entities.forEach(e => {
-          try {
-            currentLayer.remove(e);
-          } catch (err) {
-            // Ignore errors if entity already removed
-          }
-        });
+      cam.events.off("moveend", sync);
+      
+      // Clean up globe click handler
+      const layer = globus.planet.getLayerByName("Fires");
+      if (layer && layer._fireClickHandler) {
+        globus.planet.renderer.events.off("lclick", layer._fireClickHandler);
+        delete layer._fireClickHandler;
       }
-      cam.events.off("move", sync); cam.events.off("zoom", sync); cam.events.off("moveend", sync);
     };
-  }, [globus, startDate, endDate]);
+  }, [globus, startDate, endDate, onClusterClick]);
 
   return null;
 }
