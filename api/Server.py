@@ -1,456 +1,502 @@
-# api/Server.py
+# Server.py
+"""
+Flask API for Firecast-X
+
+- Receives lat/lon + weather/FIRMS features from Vercel frontend
+- Calls ML models via predictor.py (RF, LR, PyTorch NN)
+- Maps every coordinate in California into a 200 ft x 200 ft block
+- Maintains one row of state per block in Supabase (PostgreSQL):
+    * T       : how many time steps the block has been burning (0–12)
+    * T_burn  : fire state
+        0 = no fire
+        1 = fire burning
+        2 = fire burned out
+        3 = cannot burn (water, etc.)
+    * prob_sum / prob_count : used to compute the BLOCK AVERAGE spread probability
+
+On each /predict call:
+    1) Compute a point-level probability with the selected model
+    2) Snap (lat, lon) into a 200 ft block over California
+    3) Update that block's running average probability
+    4) Update T and T_burn based on the BLOCK AVERAGE (not just this sample)
+    5) Return the block state + averaged probability to the caller
+"""
 
 import os
-import json
-from datetime import datetime
 import math
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import psycopg2
+import json
 
-from predictor import predict_fire_spread  # uses RF, LR, PyTorch NN
+import psycopg2
+from flask import Flask, request, jsonify
+
+from predictor import predict_fire_spread  # uses all 3 models under the hood
 
 app = Flask(__name__)
-CORS(app)
 
 # -------------------------
-# Constants
+# 1) Fire + block constants
 # -------------------------
-FIRE_THRESHOLD = 0.75  # 75% probability to consider it "fire"
-T_MAX = 12             # T goes from 0 to 12
-# -------------------------
-# Constants mapping
-# -------------------------
-BLOCK_FEET = 200.0
-FEET_PER_DEG_LAT = 364000.0
-BLOCK_DEG_LAT = BLOCK_FEET / FEET_PER_DEG_LAT  # ~0.00055
 
-# choose a representative latitude for your area (e.g., 37 for California-ish)
-REF_LAT_DEG = 37.0
-BLOCK_DEG_LON = BLOCK_FEET / (FEET_PER_DEG_LAT * math.cos(math.radians(REF_LAT_DEG)))
+FIRE_THRESHOLD = 0.75   # probability threshold for "fire present"
+T_MAX = 12              # after this many steps in state=1, mark as burned out (2)
 
-def snap_to_block(latitude: float, longitude: float):
+# Rough bounds for California (not strict, just a reasonable box)
+CALIFORNIA_MIN_LAT = 32.0
+CALIFORNIA_MAX_LAT = 42.5
+CALIFORNIA_MIN_LON = -125.0
+CALIFORNIA_MAX_LON = -113.5
+
+# Block size ~200 ft in both directions
+BLOCK_SIZE_FT = 200.0
+BLOCK_SIZE_M = BLOCK_SIZE_FT * 0.3048  # feet → meters
+
+METERS_PER_DEG_LAT = 111_320.0
+CALIFORNIA_MID_LAT = 37.0
+METERS_PER_DEG_LON = METERS_PER_DEG_LAT * math.cos(math.radians(CALIFORNIA_MID_LAT))
+
+DEG_LAT_PER_BLOCK = BLOCK_SIZE_M / METERS_PER_DEG_LAT
+DEG_LON_PER_BLOCK = BLOCK_SIZE_M / METERS_PER_DEG_LON
+
+
+def lat_lon_to_block(lat: float, lon: float):
     """
-    Snap raw (lat, lon) to a normalized block center of ~200 ft by 200 ft.
-    All coordinates that fall in the same block produce the same snapped pair.
+    Convert a lat/lon into a (block_row, block_col, block_id, block_center_lat, block_center_lon)
+    using a fixed 200 ft grid over California.
+
+    We don't pre-create all blocks in the DB. We just compute the row/col indices
+    and lazily insert/update rows as calls come in.
     """
-    row = math.floor(latitude / BLOCK_DEG_LAT)
-    col = math.floor(longitude / BLOCK_DEG_LON)
+    # Clamp to the rough California box (so crazy outliers don't break indices)
+    clamped_lat = max(min(lat, CALIFORNIA_MAX_LAT), CALIFORNIA_MIN_LAT)
+    clamped_lon = max(min(lon, CALIFORNIA_MAX_LON), CALIFORNIA_MIN_LON)
 
-    block_lat = (row + 0.5) * BLOCK_DEG_LAT
-    block_lon = (col + 0.5) * BLOCK_DEG_LON
+    row = math.floor((clamped_lat - CALIFORNIA_MIN_LAT) / DEG_LAT_PER_BLOCK)
+    col = math.floor((clamped_lon - CALIFORNIA_MIN_LON) / DEG_LON_PER_BLOCK)
 
-    return block_lat, block_lon
+    center_lat = CALIFORNIA_MIN_LAT + (row + 0.5) * DEG_LAT_PER_BLOCK
+    center_lon = CALIFORNIA_MIN_LON + (col + 0.5) * DEG_LON_PER_BLOCK
+
+    block_id = f"CA-{row}-{col}"
+    return row, col, block_id, center_lat, center_lon
+
 
 # -------------------------
-# Database connection (Supabase / Postgres)
+# 2) DB connection
 # -------------------------
+
 def get_db_conn():
-    return psycopg2.connect(
-        host=os.environ["DB_HOST"],
-        port=os.environ.get("DB_PORT", "5432"),
-        dbname=os.environ["DB_NAME"],
-        user=os.environ["DB_USER"],
-        password=os.environ["DB_PASSWORD"],
-        sslmode="require"
-    )
-
-# -------------------------
-# Health check
-# -------------------------
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify({
-        "status": "Firecast API running",
-        "endpoints": ["/predict", "/predict-nn", "/db-test"]
-    })
-
-# -------------------------
-# DB connectivity test
-# -------------------------
-@app.route("/db-test", methods=["GET"])
-def db_test():
-    try:
-        conn = get_db_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT NOW();")
-        (now_value,) = cur.fetchone()
-        cur.close()
-        conn.close()
-        return jsonify({"status": "connected", "now": now_value.isoformat()})
-    except Exception as e:
-        return jsonify({"status": "error", "detail": str(e)}), 500
-
-# -------------------------
-# Helper: log prediction to DB (existing table)
-# -------------------------
-def log_prediction_to_db(model_name: str, request_data: dict, result: dict):
     """
-    Insert a row into firecast_predictions:
-
-      CREATE TABLE firecast_predictions (
-          id SERIAL PRIMARY KEY,
-          model_name TEXT NOT NULL,
-          input_json JSONB NOT NULL,
-          prediction_value DOUBLE PRECISION,
-          created_at TIMESTAMPTZ DEFAULT NOW()
-      );
+    Prefer DATABASE_URL (for Supabase / Render), fallback to explicit env vars,
+    and finally a local dev config.
     """
-    try:
-        conn = get_db_conn()
-        cur = conn.cursor()
+    url = os.environ.get("DATABASE_URL")
+    if url:
+        # Supabase typically requires SSL
+        return psycopg2.connect(url, sslmode=os.environ.get("DB_SSLMODE", "require"))
 
-        prediction_value = result.get("spread_probability")
-
-        insert_sql = """
-            INSERT INTO firecast_predictions (model_name, input_json, prediction_value)
-            VALUES (%s, %s, %s);
-        """
-        cur.execute(
-            insert_sql,
-            (
-                model_name,
-                json.dumps(request_data),
-                prediction_value,
-            ),
+    host = os.environ.get("DB_HOST")
+    if host:
+        return psycopg2.connect(
+            host=host,
+            port=os.environ.get("DB_PORT", 5432),
+            dbname=os.environ.get("DB_NAME", "postgres"),
+            user=os.environ.get("DB_USER", "postgres"),
+            password=os.environ.get("DB_PASSWORD", ""),
+            sslmode=os.environ.get("DB_SSLMODE", "require"),
         )
 
-        conn.commit()
-        cur.close()
-        conn.close()
-    except Exception as e:
-        # Don't crash the API if logging fails; just print error on server
-        print("DB insert error:", e)
-        # Optional: also attach status into result for debugging
-        result["db_log_error"] = str(e)
+    # Local dev fallback (matches your earlier config)
+    return psycopg2.connect(
+        host="localhost",
+        port=5433,
+        dbname="firecast",
+        user="postgres",
+        password="SE4485!",
+    )
+
 
 # -------------------------
-# Helper: update T and T_burn per cell
+# 3) Fire state + averaging logic
 # -------------------------
-def update_fire_state_for_cell_blocked(latitude: float,
-                                       longitude: float,
-                                       prob: float,
-                                       can_burn: bool = True):
-    """
-    Same logic as before, but:
-      - Snaps (latitude, longitude) into a ~200ft block center.
-      - Stores T/T_burn and probabilities per block.
-    """
-    # 1) Snap to 200ft block
-    block_lat, block_lon = snap_to_block(latitude, longitude)
 
-    conn = get_db_conn()
-    cur = conn.cursor()
+def update_fire_block_state(
+    cur,
+    block_row: int,
+    block_col: int,
+    block_id: str,
+    block_center_lat: float,
+    block_center_lon: float,
+    new_prob: float,
+    can_burn: bool = True,
+):
+    """
+    Given a point-level probability for a coordinate that belongs to this block,
+    update the block's:
+      - running average probability (prob_sum, prob_count)
+      - T and T_burn based on the *new block-average* probability.
 
-    # 2) Get previous state for this block, if any
+    Expected DB schema for fire_cell_state:
+
+        CREATE TABLE IF NOT EXISTS fire_cell_state (
+            id BIGSERIAL PRIMARY KEY,
+            block_row      INTEGER NOT NULL,
+            block_col      INTEGER NOT NULL,
+            block_id       TEXT    NOT NULL,
+            last_latitude  DOUBLE PRECISION,
+            last_longitude DOUBLE PRECISION,
+            t              INTEGER NOT NULL,
+            t_burn         INTEGER NOT NULL,
+            last_prob      DOUBLE PRECISION,
+            prob_sum       DOUBLE PRECISION NOT NULL,
+            prob_count     BIGINT NOT NULL,
+            updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (block_row, block_col)
+        );
+
+    Returns (T, T_burn, avg_prob).
+    """
+    # 1) Load previous state (if any)
     cur.execute(
         """
         SELECT t, t_burn, prob_sum, prob_count
         FROM fire_cell_state
-        WHERE latitude = %s AND longitude = %s;
+        WHERE block_row = %s AND block_col = %s;
         """,
-        (block_lat, block_lon),
+        (block_row, block_col),
     )
     row = cur.fetchone()
+
     if row:
         prev_t, prev_state, prev_sum, prev_count = row
     else:
         prev_t, prev_state, prev_sum, prev_count = 0, 0, 0.0, 0
 
-    # 3) Fire logic (same as before)
+    # 2) If this block cannot burn, force state = 3
     if not can_burn:
         new_t = 0
-        new_state = 3  # cannot burn
+        new_state = 3
+        new_sum = prev_sum  # ignore this sample for avg
+        new_count = prev_count
+        avg_prob = (new_sum / new_count) if new_count > 0 else 0.0
     else:
-        if prob >= FIRE_THRESHOLD:
-            # There is a fire according to threshold
-            if prev_state in (0, 2):  # starting a new fire
-                new_t = 0
+        # Update running average with this new sample
+        new_sum = float(prev_sum) + float(new_prob)
+        new_count = prev_count + 1
+        avg_prob = new_sum / new_count if new_count > 0 else 0.0
+
+        # 3) State machine based on BLOCK-AVERAGE probability
+        prev_state = int(prev_state)
+        prev_t = int(prev_t)
+
+        if prev_state == 3:
+            # Cannot ever burn (water, etc.) – keep it locked
+            new_state = 3
+            new_t = 0
+        elif prev_state == 0:
+            # No fire yet
+            if avg_prob >= FIRE_THRESHOLD:
                 new_state = 1
-            elif prev_state == 1:
-                new_t = min(prev_t + 1, T_MAX)
-                new_state = 1
-            elif prev_state == 3:
-                # cannot burn, ignore probability
-                new_t = prev_t
-                new_state = 3
+                new_t = 1
             else:
-                new_t = 0
-                new_state = 1
-        else:
-            # prob below threshold -> no active fire now
-            if prev_state == 1:
-                # was burning, now stopped -> burned out
-                new_t = prev_t
-                new_state = 2
-            elif prev_state in (2, 3):
-                # stay burned out or non-burnable
-                new_t = prev_t
-                new_state = prev_state
-            else:
-                new_t = 0
                 new_state = 0
+                new_t = 0
+        elif prev_state == 1:
+            # Currently burning
+            if avg_prob >= FIRE_THRESHOLD:
+                if prev_t < T_MAX:
+                    new_state = 1
+                    new_t = prev_t + 1
+                else:
+                    # reached max burn time, mark as burned out
+                    new_state = 2
+                    new_t = T_MAX
+            else:
+                # dropped below threshold early → reset to "no fire"
+                new_state = 0
+                new_t = 0
+        else:
+            # prev_state == 2 (burned out) or any other value → stay burned out
+            new_state = 2
+            new_t = prev_t
 
-    # 4) Update running sum / count for averaging
-    new_sum = prev_sum + prob
-    new_count = prev_count + 1
-
-    # 5) Upsert new state for this block
+    # --- Ensure block_index row exists ---
     cur.execute(
         """
-        INSERT INTO fire_cell_state (latitude, longitude, t, t_burn, last_prob, prob_sum, prob_count, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-        ON CONFLICT (latitude, longitude)
-        DO UPDATE SET
-            t          = EXCLUDED.t,
-            t_burn     = EXCLUDED.t_burn,
-            last_prob  = EXCLUDED.last_prob,
-            prob_sum   = fire_cell_state.prob_sum + EXCLUDED.prob_sum,
-            prob_count = fire_cell_state.prob_count + EXCLUDED.prob_count,
-            updated_at = NOW();
+        INSERT INTO block_index (
+            block_id, block_row, block_col,
+            center_lat, center_lon,
+            min_lat, max_lat, min_lon, max_lon
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (block_id) DO NOTHING;
         """,
-        (block_lat, block_lon, new_t, new_state, prob, prob, 1),
+        (
+            block_id,
+            block_row,
+            block_col,
+            block_center_lat,
+            block_center_lon,
+            block_center_lat - (DEG_LAT_PER_BLOCK / 2),
+            block_center_lat + (DEG_LAT_PER_BLOCK / 2),
+            block_center_lon - (DEG_LON_PER_BLOCK / 2),
+            block_center_lon + (DEG_LON_PER_BLOCK / 2),
+        ),
     )
 
-    conn.commit()
-    cur.close()
-    conn.close()
+    # 4) Upsert the new state back into DB
+    cur.execute(
+        """
+        INSERT INTO fire_cell_state (
+            block_row,
+            block_col,
+            block_id,
+            last_latitude,
+            last_longitude,
+            t,
+            t_burn,
+            last_prob,
+            prob_sum,
+            prob_count,
+            updated_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        ON CONFLICT (block_row, block_col)
+        DO UPDATE SET
+            block_id       = EXCLUDED.block_id,
+            last_latitude  = EXCLUDED.last_latitude,
+            last_longitude = EXCLUDED.last_longitude,
+            t              = EXCLUDED.t,
+            t_burn         = EXCLUDED.t_burn,
+            last_prob      = EXCLUDED.last_prob,
+            prob_sum       = EXCLUDED.prob_sum,
+            prob_count     = EXCLUDED.prob_count,
+            updated_at     = NOW();
+        """,
+        (
+            block_row,
+            block_col,
+            block_id,
+            block_center_lat,
+            block_center_lon,
+            new_t,
+            new_state,
+            float(new_prob),
+            float(new_sum),
+            int(new_count),
+        ),
+    )
 
-    return new_t, new_state
+    return int(new_t), int(new_state), float(avg_prob)
+
+
+def log_prediction_to_db(cur, model_name: str, request_data: dict, prob: float):
+    """
+    Log raw prediction request + single-sample probability into firecast_predictions.
+
+    Expected DB schema:
+
+        CREATE TABLE IF NOT EXISTS firecast_predictions (
+            id BIGSERIAL PRIMARY KEY,
+            model_name        TEXT    NOT NULL,
+            input_json        JSONB   NOT NULL,
+            prediction_value  DOUBLE PRECISION,
+            created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """
+    cur.execute(
+        """
+        INSERT INTO firecast_predictions (model_name, input_json, prediction_value)
+        VALUES (%s, %s, %s);
+        """,
+        (model_name, json.dumps(request_data), float(prob)),
+    )
+
+
 # -------------------------
-# Main predict endpoint
+# 4) Health endpoints
 # -------------------------
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok"})
+
+
+@app.route("/db-test", methods=["GET"])
+def db_test():
+    try:
+        conn = get_db_conn()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT NOW();")
+                (ts,) = cur.fetchone()
+        return jsonify({"status": "connected", "server_time": ts.isoformat()})
+    except Exception as e:
+        return jsonify({"status": "error", "detail": str(e)}), 500
+
+
+# -------------------------
+# 5) Prediction endpoint
+# -------------------------
+
 @app.route("/predict", methods=["POST"])
-def predict_general():
-    try:
-        data = request.get_json(silent=True)
-        if data is None:
-            return jsonify({"error": "Invalid or missing JSON body"}), 400
-
-        # Which model? default: random_forest
-        model_name = data.get("model", "random_forest")
-        allowed = ["random_forest", "logistic_regression", "pytorch_nn"]
-
-        if model_name not in allowed:
-            return jsonify({
-                "error": "Invalid model",
-                "allowed": allowed
-            }), 400
-
-        # Run the model
-        result = predict_fire_spread(data, model_name=model_name)
-        prob = float(result.get("spread_probability", 0.0))
-
-        # Compute / update T and T_burn for this cell
-        latitude = float(data["latitude"])
-        longitude = float(data["longitude"])
-        # For now we assume can_burn=True; later you can add a mask to set False for water bodies
-        T, T_burn = update_fire_state_for_cell_blocked(latitude, longitude, prob, can_burn=True)
-
-        # Attach T and T_burn to API response
-        result["T"] = T
-        result["T_burn"] = T_burn
-
-        # Log full prediction request & probability
-        log_prediction_to_db(model_name, data, result)
-
-        return jsonify(result)
-
-    except Exception as e:
-        return jsonify({
-            "error": "unexpected error in /predict",
-            "detail": str(e),
-        }), 500
-
-# -------------------------
-# Convenience: neural network only
-# -------------------------
-@app.route("/predict-nn", methods=["POST"])
-def predict_nn():
-    try:
-        data = request.get_json(silent=True)
-        if data is None:
-            return jsonify({"error": "Invalid or missing JSON body"}), 400
-
-        model_name = "pytorch_nn"
-        result = predict_fire_spread(data, model_name=model_name)
-        prob = float(result.get("spread_probability", 0.0))
-
-        latitude = float(data["latitude"])
-        longitude = float(data["longitude"])
-        T, T_burn = update_fire_state_for_cell_blocked(latitude, longitude, prob, can_burn=True)
-
-        result["T"] = T
-        result["T_burn"] = T_burn
-
-        log_prediction_to_db(model_name, data, result)
-
-        return jsonify(result)
-
-    except Exception as e:
-        return jsonify({
-            "error": "unexpected error in /predict-nn",
-            "detail": str(e),
-        }), 500
-# -------------------------
-# Convenience: predict horizon
-# -------------------------    
-@app.route("/predict-horizon", methods=["POST"])
-def predict_horizon():
+def predict():
     """
-    Simulate T, T+1, T+2, ... by reusing the same features.
-    Body example:
-    {
-      "model": "random_forest",
-      "horizon": 5,
-      "latitude": 40,
-      "longitude": -120,
-      "brightness": 310,
-      "bright_t31": 290,
-      "confidence": 80,
-      "daynight": 1,
-      "elevation": 200,
-      "slope": 5,
-      "aspect": 0,
-      "temp": 30,
-      "humidity": 40,
-      "wind_speed": 6,
-      "precip": 0,
-      "month": 8
-    }
+    Main prediction route.
+
+    Request JSON must include at least:
+        - model      : "random_forest", "logistic_regression", or "pytorch_nn"
+        - latitude
+        - longitude
+        - plus all other numeric features expected by predictor.py
+
+    Optional:
+        - can_burn   : boolean (default True). If False → T_burn = 3 for this block.
+
+    Response JSON includes (per BLOCK):
+        {
+          "model": "...",
+          "block_id": "CA-123-456",
+          "block_row": 123,
+          "block_col": 456,
+          "block_center_latitude": ...,
+          "block_center_longitude": ...,
+          "T": 1,
+          "T_burn": 1,
+          "instant_spread_probability": 0.91,
+          "block_avg_spread_probability": 0.88,
+          "prediction": "Spread",      # based on BLOCK AVERAGE
+          "db_log_error": "...",       # only if logging failed
+        }
     """
     try:
-        data = request.get_json(silent=True)
-        if data is None:
-            return jsonify({"error": "Invalid or missing JSON body"}), 400
+        if not request.data:
+            return jsonify({"error": "no JSON body"}), 400
 
-        model_name = data.get("model", "random_forest")
-        allowed = ["random_forest", "logistic_regression", "pytorch_nn"]
-        if model_name not in allowed:
-            return jsonify({"error": "Invalid model", "allowed": allowed}), 400
-
-        try:
-            latitude = float(data["latitude"])
-            longitude = float(data["longitude"])
-        except (KeyError, ValueError):
-            return jsonify({"error": "latitude and longitude are required and must be numeric"}), 400
-
-        horizon = int(data.get("horizon", 5))  # default 5 steps if not given
-        if horizon <= 0:
-            return jsonify({"error": "horizon must be > 0"}), 400
-
-        # Base feature set: everything except model & horizon
-        base_features = {k: v for k, v in data.items() if k not in ("model", "horizon")}
-
-        trajectory = []
-
-        for step_index in range(horizon):
-            # Build the input for this step (reuse same features)
-            step_data = dict(base_features)
-            step_data["model"] = model_name
-
-            # 1) Run model
-            result = predict_fire_spread(step_data, model_name=model_name)
-            prob = float(result.get("spread_probability", 0.0))
-
-            # 2) Update T / T_burn for this **block** (we'll hook blocks in next section)
-            T, T_burn = update_fire_state_for_cell_blocked(latitude, longitude, prob)
-
-            # 3) Log prediction if you want
-            log_prediction_to_db(model_name, step_data, result)
-
-            # 4) Append step info
-            trajectory.append({
-                "step_index": step_index,   # 0 = T, 1 = T+1, ...
-                "spread_probability": prob,
-                "prediction": result.get("prediction"),
-                "T": T,
-                "T_burn": T_burn
-            })
-
-        return jsonify({
-            "latitude": latitude,
-            "longitude": longitude,
-            "model": model_name,
-            "horizon": horizon,
-            "trajectory": trajectory
-        })
-
-    except Exception as e:
-        return jsonify({
-            "error": "unexpected error in /predict-horizon",
-            "detail": str(e),
-        }), 500
-
-    try:
         payload = request.get_json(silent=True)
         if payload is None:
-            return jsonify({"error": "Invalid or missing JSON body"}), 400
+            return jsonify({"error": "invalid JSON"}), 400
 
+        # Model choice (optional)
         model_name = payload.get("model", "random_forest")
-        allowed = ["random_forest", "logistic_regression", "pytorch_nn"]
-        if model_name not in allowed:
-            return jsonify({"error": "Invalid model", "allowed": allowed}), 400
+
+        # Required coords
+        try:
+            lat = float(payload["latitude"])
+            lon = float(payload["longitude"])
+        except KeyError as e:
+            return jsonify({"error": f"missing field: {e}"}), 400
+        except (TypeError, ValueError):
+            return jsonify({"error": "latitude/longitude must be numeric"}), 400
+
+        can_burn = bool(payload.get("can_burn", True))
+
+        # predictor.py should receive ONLY the feature dict, not "model"
+        feature_input = {k: v for k, v in payload.items() if k != "model"}
+
+        # 1) Single-sample prediction from ML model
+        model_result = predict_fire_spread(feature_input, model_name=model_name)
+        instant_prob = float(model_result.get("spread_probability", 0.0))
+
+        # 2) Map to 200 ft block
+        block_row, block_col, block_id, block_center_lat, block_center_lon = lat_lon_to_block(
+            lat, lon
+        )
+
+        # 3) Update DB: block state + prediction log
+        db_error = None
+        T = 0
+        T_burn = 0
+        avg_prob = instant_prob
 
         try:
-            latitude = float(payload["latitude"])
-            longitude = float(payload["longitude"])
-        except (KeyError, ValueError):
-            return jsonify({"error": "latitude and longitude are required and must be numeric"}), 400
+            conn = get_db_conn()
+            with conn:
+                with conn.cursor() as cur:
+                    # update block state (uses averaged probability)
+                    T, T_burn, avg_prob = update_fire_block_state(
+                        cur,
+                        block_row,
+                        block_col,
+                        block_id,
+                        block_center_lat,
+                        block_center_lon,
+                        instant_prob,
+                        can_burn=can_burn,
+                    )
+                    # log raw prediction
+                    log_prediction_to_db(cur, model_name, payload, instant_prob)
+        except Exception as e:
+            db_error = str(e)
 
-        steps = payload.get("steps")
-        if not isinstance(steps, list) or len(steps) == 0:
-            return jsonify({"error": "steps must be a non-empty list of feature dicts"}), 400
-
-        results = []
-
-        # We will update T/T_burn in DB for this cell as we step forward
-        for step_index, step_features in enumerate(steps):
-            # Build the data dict expected by predictor.py
-            data = dict(step_features)
-            data["latitude"] = latitude
-            data["longitude"] = longitude
-            data["model"] = model_name
-
-            # 1. Run model for this step
-            result = predict_fire_spread(data, model_name=model_name)
-            prob = float(result.get("spread_probability", 0.0))
-
-            # 2. Update T and T_burn for this cell based on prob
-            T, T_burn = update_fire_state_for_cell(
-                latitude,
-                longitude,
-                prob,
-                can_burn=True  # later you can set this False for water cells
-            )
-
-            # 3. Optionally log to firecast_predictions as well
-            log_prediction_to_db(model_name, data, result)
-
-            # 4. Collect per-step output
-            results.append({
-                "step_index": step_index,   # 0 = T, 1 = T+1, ...
-                "spread_probability": prob,
-                "prediction": result.get("prediction"),
-                "T": T,
-                "T_burn": T_burn
-            })
-
-        return jsonify({
-            "latitude": latitude,
-            "longitude": longitude,
+        # 4) Build response back to caller
+        response = {
             "model": model_name,
-            "trajectory": results
-        })
+            "block_id": block_id,
+            "block_row": block_row,
+            "block_col": block_col,
+            "block_center_latitude": block_center_lat,
+            "block_center_longitude": block_center_lon,
+            "T": T,
+            "T_burn": T_burn,
+            "instant_spread_probability": instant_prob,
+            "block_avg_spread_probability": avg_prob,
+            # final fire/no-fire label based on BLOCK-AVERAGE probability
+            "prediction": "Spread" if avg_prob >= FIRE_THRESHOLD else "No Spread",
+        }
+
+        if db_error:
+            response["db_log_error"] = db_error
+
+        return jsonify(response)
 
     except Exception as e:
-        return jsonify({
-            "error": "unexpected error in /predict-horizon",
-            "detail": str(e),
-        }), 500
+        return jsonify(
+            {
+                "error": "unexpected error in /predict",
+                "detail": str(e),
+            }
+        ), 500
+
+
 # -------------------------
-# Entry point
+# 6) Convenience route for just NN
 # -------------------------
+
+@app.route("/predict-nn", methods=["POST"])
+def predict_nn():
+    """
+    Shortcut: same as /predict but forces model = "pytorch_nn".
+    """
+    try:
+        if not request.data:
+            return jsonify({"error": "no JSON body"}), 400
+
+        payload = request.get_json(silent=True)
+        if payload is None:
+            return jsonify({"error": "invalid JSON"}), 400
+
+        payload["model"] = "pytorch_nn"
+        # Reuse /predict logic by calling the function directly
+        with app.test_request_context(
+            "/predict",
+            method="POST",
+            json=payload,
+        ):
+            return predict()
+
+    except Exception as e:
+        return jsonify(
+            {
+                "error": "unexpected error in /predict-nn",
+                "detail": str(e),
+            }
+        ), 500
+
+
+# -------------------------
+# 7) Main
+# -------------------------
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, debug=True)
