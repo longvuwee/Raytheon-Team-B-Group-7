@@ -498,5 +498,7 @@ def predict_nn():
 # -------------------------
 
 if __name__ == "__main__":
+    # Render injects PORT; default to 5000 for local dev
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    # IMPORTANT: debug must be False on Render so the reloader doesn't run
+    app.run(host="0.0.0.0", port=port, debug=False)
