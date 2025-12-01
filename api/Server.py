@@ -260,14 +260,33 @@ def predict():
         cur.execute(
             """
             INSERT INTO fire_cell_state (
+                block_row,
+                block_col,
                 block_id,
-                T,
-                T_burn,
+                last_latitude,
+                last_longitude,
+                t,
+                t_burn,
+                last_prob,
+                prob_sum,
+                prob_count,
                 instant_spread_probability
             )
-            VALUES (%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
-            (block.block_id, new_T, new_T_burn, inst_prob),
+            (
+                block.row,
+                block.col,
+                block.block_id,
+                lat,
+                lon,
+                new_T,
+                new_T_burn,
+                inst_prob,   # last_prob
+                inst_prob,   # prob_sum (start with this prob)
+                1,           # prob_count (first observation)
+                inst_prob,   # instant_spread_probability
+            ),
         )
 
         conn.commit()
