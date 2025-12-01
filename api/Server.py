@@ -15,9 +15,7 @@ from predictor import predict_fire_spread
 app = Flask(__name__)
 CORS(app)
 
-# ---------------------------------------------------------------------
-# Feature list (ONLY these go into the model)
-# ---------------------------------------------------------------------
+# ---- MODEL FEATURE KEYS (ONLY THESE GO TO THE MODEL) ----
 FEATURE_KEYS = [
     "latitude",
     "longitude",
@@ -35,9 +33,7 @@ FEATURE_KEYS = [
     "month",
 ]
 
-# ---------------------------------------------------------------------
-# DB config
-# ---------------------------------------------------------------------
+# ---- DB CONFIG ----
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST"),
     "dbname": os.environ.get("DB_NAME", "postgres"),
@@ -51,9 +47,7 @@ def get_db_conn():
     return psycopg2.connect(**DB_CONFIG)
 
 
-# ---------------------------------------------------------------------
-# Grid snapping (~200 ft)
-# ---------------------------------------------------------------------
+# ~200 ft grid
 DEG_LAT_200FT = 61.0 / 111_320.0
 DEG_LON_200FT_AT_EQ = 61.0 / 111_320.0
 
@@ -68,6 +62,7 @@ class Block:
 
 
 def snap_to_grid(lat: float, lon: float) -> Block:
+    # Simple origin (tuned for CONUS)
     origin_lat = 25.0
     origin_lon = -125.0
 
@@ -81,221 +76,232 @@ def snap_to_grid(lat: float, lon: float) -> Block:
     center_lon = origin_lon + (col + 0.5) * cell_lon
 
     block_id = f"CA-{row}-{col}"
-    return Block(
-        block_id=block_id,
-        row=row,
-        col=col,
-        center_lat=center_lat,
-        center_lon=center_lon,
-    )
+    return Block(block_id=block_id, row=row, col=col, center_lat=center_lat, center_lon=center_lon)
 
 
-# ---------------------------------------------------------------------
-# Timeline logic
-# ---------------------------------------------------------------------
 SPREAD_THRESHOLD = 0.75
 T_MAX = 12
 
 
 def update_timeline(old_T: int, old_T_burn: int, prob: float, can_burn: bool) -> Tuple[int, int]:
-    # 3 = cannot burn (water, etc.)
+    """
+    Timeline logic:
+      - T_burn = 0: no fire
+      - T_burn = 1: burning
+      - T_burn = 2: burned out
+      - T_burn = 3: cannot burn
+    """
     if not can_burn:
-        return 0, 3
+        return 0, 3  # cannot burn
 
-    # once burned out or cannot burn, keep state
+    # Once burned out or cannot burn, we don't change
     if old_T_burn in (2, 3):
         return old_T, old_T_burn
 
-    # high probability case
+    # Fire spreads above threshold
     if prob >= SPREAD_THRESHOLD:
-        if old_T_burn == 0:          # newly igniting
+        if old_T_burn == 0:
+            # first ignition
             return 0, 1
-        if old_T_burn == 1:          # continuing burn
+        if old_T_burn == 1:
             new_T = min(old_T + 1, T_MAX)
             if new_T >= T_MAX:
-                return new_T, 2      # burned out
+                # finished burning
+                return new_T, 2
             return new_T, 1
-        # default: ignite
+        # Fallback
         return 0, 1
     else:
-        # low probability: if it was burning, it goes back to no fire
+        # Below threshold stops burning if it was burning
         if old_T_burn == 1:
             return 0, 0
         return old_T, old_T_burn
 
 
-# ---------------------------------------------------------------------
-# Health check
-# ---------------------------------------------------------------------
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
 
 
-# ---------------------------------------------------------------------
-# Predict route
-# ---------------------------------------------------------------------
 @app.route("/predict", methods=["POST"])
 def predict():
+    # ---- Parse JSON body ----
     try:
         data = request.get_json(force=True) or {}
+    except Exception as e:
+        return jsonify({"error": f"Invalid JSON body: {e}"}), 400
 
-        # model name (default RF)
-        model_name = (data.get("model") or "random_forest").lower()
-        can_burn = bool(data.get("can_burn", True))
+    if not isinstance(data, dict):
+        return jsonify({"error": "JSON body must be an object"}), 400
 
-        # === build features dict with ONLY the physical features ===
-        features: Dict[str, Any] = {}
-        for key in FEATURE_KEYS:
-            if key not in data:
-                return jsonify(
-                    {
-                        "error": f"Missing required feature '{key}'",
-                        "received_keys": list(data.keys()),
-                    }
-                ), 400
-            features[key] = data[key]
+    # Model selection + can_burn flag
+    model_name = (data.get("model") or "random_forest").lower()
+    can_burn = bool(data.get("can_burn", True))
 
-        # sanity check lat/lon present
-        if "latitude" not in features or "longitude" not in features:
-            return jsonify({"error": "latitude and longitude are required"}), 400
+    # ---- Build features dict (ONLY the 15 physical features) ----
+    missing = [k for k in FEATURE_KEYS if k not in data]
+    if missing:
+        return jsonify(
+            {
+                "error": "Missing required features",
+                "missing": missing,
+                "received_keys": list(data.keys()),
+            }
+        ), 400
 
-        # === call the model (only 15 features go in) ===
+    # Keep types as-is; predictor will handle conversion via feature_cols
+    features: Dict[str, Any] = {k: data[k] for k in FEATURE_KEYS}
+
+    # ---- Call model ----
+    try:
         pred = predict_fire_spread(features, model_name=model_name)
         inst_prob = float(pred["spread_probability"])
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify(
+            {
+                "error": f"Model prediction failed: {type(e).__name__}: {e}",
+            }
+        ), 500
 
-        # === compute block from lat/lon ===
+    # ---- Snap to grid and update timeline in DB ----
+    try:
         lat = float(features["latitude"])
         lon = float(features["longitude"])
-        block = snap_to_grid(lat, lon)
+    except Exception as e:
+        return jsonify({"error": f"Invalid latitude/longitude: {e}"}), 400
 
-        # defaults
-        old_T = 0
-        old_T_burn = 0
+    block = snap_to_grid(lat, lon)
+
+    new_T = 0
+    new_T_burn = 0
+    block_avg_prob = inst_prob
+
+    try:
+        conn = get_db_conn()
+        conn.autocommit = False
+        cur = conn.cursor()
+
+        # Read existing block state if present
+        cur.execute(
+            """
+            SELECT T, T_burn, block_avg_spread_probability
+            FROM block_index
+            WHERE block_id = %s
+            """,
+            (block.block_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            old_T, old_T_burn, old_avg = row
+        else:
+            old_T, old_T_burn, old_avg = 0, 0, inst_prob
+
+        # Update T and T_burn
+        new_T, new_T_burn = update_timeline(old_T, old_T_burn, inst_prob, can_burn)
+
+        # For now we just overwrite avg with this instant prob
         block_avg_prob = inst_prob
 
-        conn = None
-        try:
-            conn = get_db_conn()
-            conn.autocommit = False
-            cur = conn.cursor()
-
-            # pull existing block row, if any
+        # Upsert block_index
+        if row:
             cur.execute(
                 """
-                SELECT T, T_burn, block_avg_spread_probability
-                FROM block_index
+                UPDATE block_index
+                SET block_row = %s,
+                    block_col = %s,
+                    block_center_latitude = %s,
+                    block_center_longitude = %s,
+                    T = %s,
+                    T_burn = %s,
+                    block_avg_spread_probability = %s
                 WHERE block_id = %s
                 """,
-                (block.block_id,),
+                (
+                    block.row,
+                    block.col,
+                    block.center_lat,
+                    block.center_lon,
+                    new_T,
+                    new_T_burn,
+                    block_avg_prob,
+                    block.block_id,
+                ),
             )
-            row = cur.fetchone()
-            if row:
-                old_T, old_T_burn, old_avg = row
-            else:
-                old_T, old_T_burn, old_avg = 0, 0, inst_prob
-
-            # update timeline
-            new_T, new_T_burn = update_timeline(old_T, old_T_burn, inst_prob, can_burn)
-            block_avg_prob = inst_prob  # for now just equal to instant prob
-
-            # upsert into block_index
-            if row:
-                cur.execute(
-                    """
-                    UPDATE block_index
-                    SET block_row = %s,
-                        block_col = %s,
-                        block_center_latitude = %s,
-                        block_center_longitude = %s,
-                        T = %s,
-                        T_burn = %s,
-                        block_avg_spread_probability = %s
-                    WHERE block_id = %s
-                    """,
-                    (
-                        block.row,
-                        block.col,
-                        block.center_lat,
-                        block.center_lon,
-                        new_T,
-                        new_T_burn,
-                        block_avg_prob,
-                        block.block_id,
-                    ),
-                )
-            else:
-                cur.execute(
-                    """
-                    INSERT INTO block_index (
-                        block_id,
-                        block_row,
-                        block_col,
-                        block_center_latitude,
-                        block_center_longitude,
-                        T,
-                        T_burn,
-                        block_avg_spread_probability
-                    )
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                    """,
-                    (
-                        block.block_id,
-                        block.row,
-                        block.col,
-                        block.center_lat,
-                        block.center_lon,
-                        new_T,
-                        new_T_burn,
-                        block_avg_prob,
-                    ),
-                )
-
-            # log each call in fire_cell_state
+        else:
             cur.execute(
                 """
-                INSERT INTO fire_cell_state (
+                INSERT INTO block_index (
                     block_id,
+                    block_row,
+                    block_col,
+                    block_center_latitude,
+                    block_center_longitude,
                     T,
                     T_burn,
-                    instant_spread_probability
+                    block_avg_spread_probability
                 )
-                VALUES (%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
-                (block.block_id, new_T, new_T_burn, inst_prob),
+                (
+                    block.block_id,
+                    block.row,
+                    block.col,
+                    block.center_lat,
+                    block.center_lon,
+                    new_T,
+                    new_T_burn,
+                    block_avg_prob,
+                ),
             )
 
-            conn.commit()
-            cur.close()
-        except Exception as db_e:
-            if conn:
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
+        # Write per-request history
+        cur.execute(
+            """
+            INSERT INTO fire_cell_state (
+                block_id,
+                T,
+                T_burn,
+                instant_spread_probability
+            )
+            VALUES (%s,%s,%s,%s)
+            """,
+            (block.block_id, new_T, new_T_burn, inst_prob),
+        )
 
-            # still return useful info even if DB fails
-            return jsonify({
-                "error": f"Database error: {type(db_e).__name__}: {db_e}",
-                "model": pred.get("model", model_name),
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        # Still return something useful but mark DB failure
+        return jsonify(
+            {
+                "error": f"Database error: {type(e).__name__}: {e}",
+                "model": model_name,
                 "instant_spread_probability": inst_prob,
                 "prediction": "Spread" if inst_prob >= SPREAD_THRESHOLD else "No Spread",
-                "T": 0,
-                "T_burn": 0,
+                "T": new_T,
+                "T_burn": new_T_burn,
                 "block_id": block.block_id,
                 "block_row": block.row,
                 "block_col": block.col,
                 "block_center_latitude": block.center_lat,
                 "block_center_longitude": block.center_lon,
-                "block_avg_spread_probability": inst_prob,
-            }), 500
-        finally:
-            if conn is not None:
-                conn.close()
+                "block_avg_spread_probability": block_avg_prob,
+            }
+        ), 500
 
-        # === normal successful response ===
-        return jsonify({
-            "model": pred.get("model", model_name),
+    # ---- Success response ----
+    return jsonify(
+        {
+            "model": model_name,
             "instant_spread_probability": inst_prob,
             "prediction": "Spread" if inst_prob >= SPREAD_THRESHOLD else "No Spread",
             "T": new_T,
@@ -306,13 +312,10 @@ def predict():
             "block_center_latitude": block.center_lat,
             "block_center_longitude": block.center_lon,
             "block_avg_spread_probability": block_avg_prob,
-        })
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": f"Server error: {type(e).__name__}: {e}"}), 500
+        }
+    )
 
 
 if __name__ == "__main__":
+    # Render will run this with `python Server.py`
     app.run(host="0.0.0.0", port=10000, debug=True)
