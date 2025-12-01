@@ -13,8 +13,7 @@ Model prediction utilities for Firecast-X.
   is set, in which case that directory is used instead.
 
 - Optionally uses:
-    * feature_cols.joblib  : list of feature names in the correct order
-    * scaler.joblib        : sklearn-style scaler with .transform()
+    * scaler.joblib  : sklearn-style scaler with .transform()
 """
 
 import os
@@ -24,7 +23,6 @@ from typing import Dict, Any
 import numpy as np
 import joblib
 import torch
-
 
 # ---------------------------------------------------------------------
 # Paths / directories
@@ -48,6 +46,26 @@ def _get_model_dir() -> Path:
 
 MODEL_DIR = _get_model_dir()
 
+# ---------------------------------------------------------------------
+# FIXED FEATURE ORDER  (must match training!)
+# ---------------------------------------------------------------------
+
+FEATURE_COLS = [
+    "latitude",
+    "longitude",
+    "brightness",
+    "bright_t31",
+    "confidence",
+    "daynight",
+    "elevation",
+    "slope",
+    "aspect",
+    "temp",
+    "humidity",
+    "wind_speed",
+    "precip",
+    "month",
+]
 
 # ---------------------------------------------------------------------
 # Lazy-loaded artifacts
@@ -61,20 +79,8 @@ _lr_model = None
 _nn_model = None
 _nn_device = "cpu"
 
-# Optional artifacts
-_feature_cols = None
+# Optional scaler
 _scaler = None
-
-
-def _load_feature_cols():
-    global _feature_cols
-    if _feature_cols is None:
-        path = MODEL_DIR / "feature_cols.joblib"
-        if path.exists():
-            _feature_cols = joblib.load(path)
-        else:
-            _feature_cols = None
-    return _feature_cols
 
 
 def _load_scaler():
@@ -125,19 +131,10 @@ def _load_pytorch_nn():
 def _prepare_feature_vector(features: Dict[str, Any]) -> np.ndarray:
     """
     Convert input feature dict into a 2D numpy array (1, n_features)
-    in the correct order.
-
-    - If feature_cols.joblib exists → enforce that order.
-    - Otherwise, use sorted(features.keys()) as a stable fallback.
+    in the FIXED order defined by FEATURE_COLS.
     """
-    cols = _load_feature_cols()
-
-    if cols is None:
-        # Fallback: all keys, sorted for determinism
-        cols = sorted(features.keys())
-
     values = []
-    for name in cols:
+    for name in FEATURE_COLS:
         if name not in features:
             raise KeyError(f"Missing required feature: {name}")
         values.append(float(features[name]))
@@ -211,25 +208,12 @@ def _predict_nn(x: np.ndarray) -> float:
 
 def predict_fire_spread(features: Dict[str, Any], model_name: str = "random_forest") -> Dict[str, Any]:
     """
-    Main prediction entry point.
+    Main entry point used by Server.py
 
-    Parameters
-    ----------
-    features : dict
-        Mapping from feature name → value. Must contain all columns
-        expected by the model (or by feature_cols.joblib).
-    model_name : str
-        One of: "random_forest", "logistic_regression", "pytorch_nn".
-
-    Returns
-    -------
-    dict
-        {
-            "model": model_name,
-            "spread_probability": float between 0 and 1
-        }
+    inputs: dict with keys in FEATURE_COLS
+    output: { "model": str, "spread_probability": float }
     """
-    # Prepare numeric feature vector
+    # Prepare numeric feature vector in the fixed order
     x = _prepare_feature_vector(features)
 
     model_name = (model_name or "random_forest").lower()
@@ -251,7 +235,7 @@ def predict_fire_spread(features: Dict[str, Any], model_name: str = "random_fore
 
 # Simple local test hook
 if __name__ == "__main__":
-    # Example dummy call (adjust feature names/values to match your dataset)
+    # Example dummy call
     example = {
         "latitude": 37.1,
         "longitude": -121.9,
