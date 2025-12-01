@@ -1,142 +1,108 @@
 # predictor.py
-"""
-Firecast-X predictor module.
-
-Loads:
-  - models/random_forest.joblib
-  - models/logreg.joblib   (optional)
-  - models/feature_cols.joblib (list of feature names, in training order)
-  - models/scaler.joblib       (sklearn scaler, optional)
-"""
-
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Dict, Any
 
-import numpy as np
 import joblib
+import numpy as np
 
-# ---------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------
+# Optional: only needed if you actually use the NN
+import torch
 
-BASE_DIR = Path(__file__).resolve().parent
+
+# ---------------------------------------------------
+# Locate model files under api/models
+# ---------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent          # .../Raytheon-Team-B-Group-7/api
 MODEL_DIR = BASE_DIR / "models"
 
-RF_PATH = MODEL_DIR / "random_forest.joblib"
-LR_PATH = MODEL_DIR / "logreg.joblib"
 FEATURE_COLS_PATH = MODEL_DIR / "feature_cols.joblib"
-SCALER_PATH = MODEL_DIR / "scaler.joblib"
+SCALER_PATH       = MODEL_DIR / "scaler.joblib"
 
-_rf_model = None
-_lr_model = None
-_feature_cols = None
-_scaler = None
+# Newer / good models
+RF_MODEL_PATH     = MODEL_DIR / "random_forest.joblib"
+LR_MODEL_PATH     = MODEL_DIR / "logreg.joblib"          # logistic regression
+NN_MODEL_PATH     = MODEL_DIR / "pytorch_nn.pt"          # torch model (optional)
 
+print("Loading feature_cols from:", FEATURE_COLS_PATH)
+print("Loading scaler from:", SCALER_PATH)
+print("Loading RF model from:", RF_MODEL_PATH)
+print("Loading LR model from:", LR_MODEL_PATH)
 
-def _load_feature_cols():
-    global _feature_cols
-    if _feature_cols is None:
-        if not FEATURE_COLS_PATH.exists():
-            raise RuntimeError(f"Missing feature_cols.joblib at {FEATURE_COLS_PATH}")
-        _feature_cols = joblib.load(FEATURE_COLS_PATH)
-        if not isinstance(_feature_cols, (list, tuple)):
-            raise RuntimeError("feature_cols.joblib must contain a list/tuple of feature names.")
-    return _feature_cols
+feature_cols = joblib.load(FEATURE_COLS_PATH)
+scaler = joblib.load(SCALER_PATH)
+rf_model = joblib.load(RF_MODEL_PATH)
+lr_model = joblib.load(LR_MODEL_PATH)
 
-
-def _load_scaler():
-    global _scaler
-    if _scaler is None:
-        if SCALER_PATH.exists():
-            _scaler = joblib.load(SCALER_PATH)
-        else:
-            _scaler = None
-    return _scaler
+# Lazy-load NN so we don't blow memory if not used
+_nn_model = None
 
 
-def _load_rf():
-    global _rf_model
-    if _rf_model is None:
-        if not RF_PATH.exists():
-            raise RuntimeError(f"Missing random_forest.joblib at {RF_PATH}")
-        _rf_model = joblib.load(RF_PATH)
-    return _rf_model
+def _load_nn_model():
+    global _nn_model
+    if _nn_model is None:
+        print("Loading PyTorch NN model from:", NN_MODEL_PATH)
+        model = torch.load(NN_MODEL_PATH, map_location="cpu")
+        model.eval()
+        _nn_model = model
+    return _nn_model
 
 
-def _load_lr():
-    global _lr_model
-    if _lr_model is None:
-        if not LR_PATH.exists():
-            raise RuntimeError(f"Missing logreg.joblib at {LR_PATH}")
-        _lr_model = joblib.load(LR_PATH)
-    return _lr_model
-
-
+# ---------------------------------------------------
+# Build feature vector in the SAME order as training
+# ---------------------------------------------------
 def _build_feature_vector(features: Dict[str, Any]) -> np.ndarray:
     """
-    Build 2D numpy array (1, n_features) in the *training* order.
-
-    We rely on feature_cols.joblib for the correct order.
-    Every name in feature_cols must be present in the incoming dict.
+    Turn a dict of features into a 2D numpy array with columns ordered
+    exactly as in feature_cols.
     """
-    cols = _load_feature_cols()
     values = []
-    for name in cols:
+    for name in feature_cols:
         if name not in features:
-            raise KeyError(f"Missing required feature: {name}")
+            raise KeyError(f"Missing feature '{name}' for prediction")
         values.append(float(features[name]))
-
-    x = np.asarray(values, dtype=np.float32).reshape(1, -1)
-
-    scaler = _load_scaler()
-    if scaler is not None:
-        x = scaler.transform(x)
-
-    return x
+    return np.array([values], dtype=float)   # shape (1, n_features)
 
 
+# ---------------------------------------------------
+# Main prediction function used by Server.py
+# ---------------------------------------------------
 def predict_fire_spread(features: Dict[str, Any], model_name: str = "random_forest") -> Dict[str, Any]:
     """
-    Core prediction API used by Server.py.
+    features: dict containing ALL required numeric features
+              (latitude, longitude, brightness, ..., month)
+    model_name: "random_forest", "logistic_regression", or "pytorch_nn"
     """
-    x = _build_feature_vector(features)
-    name = (model_name or "random_forest").lower()
+    model_name = (model_name or "random_forest").lower()
 
-    if name == "random_forest":
-        model = _load_rf()
-        p = float(model.predict_proba(x)[0][1])
-        resolved = "random_forest"
-    elif name in ("logistic_regression", "logreg", "lr"):
-        model = _load_lr()
-        p = float(model.predict_proba(x)[0][1])
-        resolved = "logistic_regression"
+    # Build feature vector in correct order
+    X = _build_feature_vector(features)
+
+    # Scale features once, using the same scaler from training
+    X_scaled = scaler.transform(X)
+
+    # Choose model
+    if model_name == "logistic_regression":
+        prob = float(lr_model.predict_proba(X_scaled)[0, 1])
+
+    elif model_name == "pytorch_nn":
+        nn = _load_nn_model()
+        with torch.no_grad():
+            x_tensor = torch.tensor(X_scaled, dtype=torch.float32)
+            # assume NN outputs a single logit or probability
+            out = nn(x_tensor)
+            # handle shape (1,) or (1,1)
+            if out.ndim == 2:
+                out = out[:, 0]
+            prob = float(torch.sigmoid(out)[0])
+
     else:
-        raise ValueError(f"Unsupported model '{model_name}'. Use 'random_forest' or 'logistic_regression'.")
+        # default: random forest
+        prob = float(rf_model.predict_proba(X_scaled)[0, 1])
+        model_name = "random_forest"
 
     return {
-        "model": resolved,
-        "spread_probability": p,
+        "model": model_name,
+        "spread_probability": prob,
     }
-
-
-if __name__ == "__main__":
-    dummy = {
-        "latitude": 40.0001,
-        "longitude": -120.0001,
-        "brightness": 310,
-        "bright_t31": 290,
-        "confidence": 80,
-        "daynight": 1,
-        "elevation": 200,
-        "slope": 5,
-        "aspect": 0,
-        "temp": 30,
-        "humidity": 40,
-        "wind_speed": 6,
-        "precip": 0,
-        "month": 8,
-    }
-    print(predict_fire_spread(dummy, "random_forest"))
