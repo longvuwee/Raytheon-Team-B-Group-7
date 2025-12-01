@@ -1,4 +1,3 @@
-# predictor.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,71 +6,74 @@ from typing import Dict, Any
 import joblib
 import numpy as np
 
-# ---------------------------------------------------
-# Locate model files under api/models
-# ---------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parent          # .../Raytheon-Team-B-Group-7/api
-MODEL_DIR = BASE_DIR / "models"
+# --------------------------------------------------
+# Model paths
+# --------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parents[1]      # repo root
+MODEL_DIR = BASE_DIR / "api" / "models"
 
 FEATURE_COLS_PATH = MODEL_DIR / "feature_cols.joblib"
 SCALER_PATH       = MODEL_DIR / "scaler.joblib"
-
 RF_MODEL_PATH     = MODEL_DIR / "random_forest.joblib"
-LR_MODEL_PATH     = MODEL_DIR / "logreg.joblib"          # logistic regression
+LR_MODEL_PATH     = MODEL_DIR / "logreg.joblib"
 
 print("Loading feature_cols from:", FEATURE_COLS_PATH)
 print("Loading scaler from:", SCALER_PATH)
 print("Loading RF model from:", RF_MODEL_PATH)
 print("Loading LR model from:", LR_MODEL_PATH)
 
-feature_cols = joblib.load(FEATURE_COLS_PATH)
-scaler = joblib.load(SCALER_PATH)
-rf_model = joblib.load(RF_MODEL_PATH)
-lr_model = joblib.load(LR_MODEL_PATH)
+feature_cols = joblib.load(FEATURE_COLS_PATH)   # list of feature names
+scaler       = joblib.load(SCALER_PATH)
+rf           = joblib.load(RF_MODEL_PATH)
+lr           = joblib.load(LR_MODEL_PATH)
 
 
-# ---------------------------------------------------
-# Build feature vector in the SAME order as training
-# ---------------------------------------------------
+# --------------------------------------------------
+# Helper: build feature vector in the correct order
+# --------------------------------------------------
 def _build_feature_vector(features: Dict[str, Any]) -> np.ndarray:
     """
-    Turn a dict of features into a 2D numpy array with columns ordered
-    exactly as in feature_cols.
+    Build a 1×N vector with columns in the same order as `feature_cols`.
     """
-    values = []
+    vals = []
     for name in feature_cols:
         if name not in features:
-            raise KeyError(f"Missing feature '{name}' for prediction")
-        values.append(float(features[name]))
-    return np.array([values], dtype=float)   # shape (1, n_features)
+            raise KeyError(f"Missing feature: {name}")
+        vals.append(float(features[name]))
+
+    x = np.array(vals, dtype=float).reshape(1, -1)
+    return x
 
 
-# ---------------------------------------------------
-# Main prediction function used by Server.py
-# ---------------------------------------------------
+# --------------------------------------------------
+# Public API
+# --------------------------------------------------
 def predict_fire_spread(features: Dict[str, Any], model_name: str = "random_forest") -> Dict[str, Any]:
     """
-    features: dict containing ALL required numeric features
-              (latitude, longitude, brightness, ..., month)
-    model_name: "random_forest" or "logistic_regression"
+    features: dict with raw numeric values for all feature_cols
+    model_name: "random_forest" or "logistic_regression" (or "logreg")
+    Returns: {"model": <used_model>, "spread_probability": float}
     """
-    model_name = (model_name or "random_forest").lower()
+    x = _build_feature_vector(features)
+    m = (model_name or "random_forest").lower()
 
-    # Build feature vector in correct order
-    X = _build_feature_vector(features)
+    if m == "random_forest":
+        # IMPORTANT: RF was trained on **raw** features, so we DO NOT scale here.
+        prob = rf.predict_proba(x)[0, 1]
+        used_model = "random_forest"
 
-    # Scale features once, using the same scaler from training
-    X_scaled = scaler.transform(X)
+    elif m in ("logistic_regression", "logreg"):
+        # LR was trained on scaled features → apply scaler
+        x_scaled = scaler.transform(x)
+        prob = lr.predict_proba(x_scaled)[0, 1]
+        used_model = "logistic_regression"
 
-    # Choose model
-    if model_name == "logistic_regression":
-        prob = float(lr_model.predict_proba(X_scaled)[0, 1])
     else:
-        # default: random forest
-        prob = float(rf_model.predict_proba(X_scaled)[0, 1])
-        model_name = "random_forest"
+        # Fallback to RF on raw features
+        prob = rf.predict_proba(x)[0, 1]
+        used_model = "random_forest"
 
     return {
-        "model": model_name,
-        "spread_probability": prob,
+        "model": used_model,
+        "spread_probability": float(prob),
     }
