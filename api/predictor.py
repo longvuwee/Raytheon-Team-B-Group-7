@@ -1,114 +1,142 @@
-import joblib
-import numpy as np
-import torch
-import torch.nn as nn
-import pandas as pd
+# predictor.py
+"""
+Firecast-X predictor module.
+
+Loads:
+  - models/random_forest.joblib
+  - models/logreg.joblib   (optional)
+  - models/feature_cols.joblib (list of feature names, in training order)
+  - models/scaler.joblib       (sklearn scaler, optional)
+"""
+
+from __future__ import annotations
+
 import os
+from pathlib import Path
+from typing import Dict, Any
 
+import numpy as np
+import joblib
+
+# ---------------------------------------------------------------------
 # Paths
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
+# ---------------------------------------------------------------------
 
-# Load feature list and scaler
-feature_cols = joblib.load(os.path.join(MODELS_DIR, "feature_cols.joblib"))
-scaler = joblib.load(os.path.join(MODELS_DIR, "scaler.joblib"))
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_DIR = BASE_DIR / "models"
 
-# Load sklearn models
-rf_model = joblib.load(os.path.join(MODELS_DIR, "random_forest.joblib"))
-lr_model = joblib.load(os.path.join(MODELS_DIR, "logreg.joblib"))
+RF_PATH = MODEL_DIR / "random_forest.joblib"
+LR_PATH = MODEL_DIR / "logreg.joblib"
+FEATURE_COLS_PATH = MODEL_DIR / "feature_cols.joblib"
+SCALER_PATH = MODEL_DIR / "scaler.joblib"
 
-# PyTorch model definition
-class MLP(nn.Module):
-    def __init__(self, in_dim):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 32),
-            nn.ReLU(),
-            nn.Linear(32, 1),
-            nn.Sigmoid()
-        )
-    def forward(self, x):
-        return self.net(x)
+_rf_model = None
+_lr_model = None
+_feature_cols = None
+_scaler = None
 
-# Load PyTorch model
-nn_model = MLP(len(feature_cols))
-nn_model.load_state_dict(torch.load(os.path.join(MODELS_DIR, "pytorch_nn.pt"), map_location="cpu"))
-nn_model.eval()
 
-# ------------------------------------------------------------
-# Core prediction function
-# ------------------------------------------------------------
-PREDICTION_THRESHOLD = 0.75  # 75% threshold for saying "Spread"
+def _load_feature_cols():
+    global _feature_cols
+    if _feature_cols is None:
+        if not FEATURE_COLS_PATH.exists():
+            raise RuntimeError(f"Missing feature_cols.joblib at {FEATURE_COLS_PATH}")
+        _feature_cols = joblib.load(FEATURE_COLS_PATH)
+        if not isinstance(_feature_cols, (list, tuple)):
+            raise RuntimeError("feature_cols.joblib must contain a list/tuple of feature names.")
+    return _feature_cols
 
-def predict_fire_spread(data: dict, model_name="random_forest"):
+
+def _load_scaler():
+    global _scaler
+    if _scaler is None:
+        if SCALER_PATH.exists():
+            _scaler = joblib.load(SCALER_PATH)
+        else:
+            _scaler = None
+    return _scaler
+
+
+def _load_rf():
+    global _rf_model
+    if _rf_model is None:
+        if not RF_PATH.exists():
+            raise RuntimeError(f"Missing random_forest.joblib at {RF_PATH}")
+        _rf_model = joblib.load(RF_PATH)
+    return _rf_model
+
+
+def _load_lr():
+    global _lr_model
+    if _lr_model is None:
+        if not LR_PATH.exists():
+            raise RuntimeError(f"Missing logreg.joblib at {LR_PATH}")
+        _lr_model = joblib.load(LR_PATH)
+    return _lr_model
+
+
+def _build_feature_vector(features: Dict[str, Any]) -> np.ndarray:
     """
-    data: dict of features, e.g.
-      {
-        "latitude": 37.5,
-        "longitude": -120.4,
-        "brightness": 335.1,
-        "bright_t31": 295.2,
-        "confidence": 85,
-        "daynight": 1,
-        "elevation": 120.3,
-        "slope": 5.1,
-        "aspect": 150.0,
-        "temp": 30.0,
-        "humidity": 45.0,
-        "wind_speed": 3.5,
-        "precip": 0.0,
-        "month": 8
-      }
+    Build 2D numpy array (1, n_features) in the *training* order.
+
+    We rely on feature_cols.joblib for the correct order.
+    Every name in feature_cols must be present in the incoming dict.
     """
-    # Create DataFrame with all expected columns
-    x_df = pd.DataFrame([data])
-    for col in feature_cols:
-        if col not in x_df.columns:
-            x_df[col] = 0.0
-    x_df = x_df[feature_cols].astype(float)
+    cols = _load_feature_cols()
+    values = []
+    for name in cols:
+        if name not in features:
+            raise KeyError(f"Missing required feature: {name}")
+        values.append(float(features[name]))
 
-    # Scale for models that need it
-    x_scaled = scaler.transform(x_df)
+    x = np.asarray(values, dtype=np.float32).reshape(1, -1)
 
-    # Select and predict
-    if model_name == "random_forest":
-        prob = rf_model.predict_proba(x_df)[:, 1][0]
-    elif model_name == "logistic_regression":
-        prob = lr_model.predict_proba(x_scaled)[:, 1][0]
-    elif model_name == "pytorch_nn":
-        x_tensor = torch.tensor(x_scaled, dtype=torch.float32)
-        with torch.no_grad():
-            prob = nn_model(x_tensor).numpy().flatten()[0]
+    scaler = _load_scaler()
+    if scaler is not None:
+        x = scaler.transform(x)
+
+    return x
+
+
+def predict_fire_spread(features: Dict[str, Any], model_name: str = "random_forest") -> Dict[str, Any]:
+    """
+    Core prediction API used by Server.py.
+    """
+    x = _build_feature_vector(features)
+    name = (model_name or "random_forest").lower()
+
+    if name == "random_forest":
+        model = _load_rf()
+        p = float(model.predict_proba(x)[0][1])
+        resolved = "random_forest"
+    elif name in ("logistic_regression", "logreg", "lr"):
+        model = _load_lr()
+        p = float(model.predict_proba(x)[0][1])
+        resolved = "logistic_regression"
     else:
-        raise ValueError(f"Unknown model: {model_name}")
-
-    prob = float(prob)
+        raise ValueError(f"Unsupported model '{model_name}'. Use 'random_forest' or 'logistic_regression'.")
 
     return {
-        "model": model_name,
-        "spread_probability": prob,
-        "prediction": "Spread" if prob >= PREDICTION_THRESHOLD else "No Spread"
+        "model": resolved,
+        "spread_probability": p,
     }
 
 
 if __name__ == "__main__":
-    sample = {
-        "latitude": 37.2,
-        "longitude": -120.5,
-        "brightness": 340,
-        "bright_t31": 295,
+    dummy = {
+        "latitude": 40.0001,
+        "longitude": -120.0001,
+        "brightness": 310,
+        "bright_t31": 290,
         "confidence": 80,
         "daynight": 1,
-        "elevation": 100,
-        "slope": 4,
-        "aspect": 160,
-        "temp": 32,
+        "elevation": 200,
+        "slope": 5,
+        "aspect": 0,
+        "temp": 30,
         "humidity": 40,
         "wind_speed": 6,
         "precip": 0,
-        "month": 8
+        "month": 8,
     }
-    from pprint import pprint
-    pprint(predict_fire_spread(sample, "random_forest"))
-    pprint(predict_fire_spread(sample, "pytorch_nn"))
+    print(predict_fire_spread(dummy, "random_forest"))
