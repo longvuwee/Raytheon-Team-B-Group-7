@@ -14,9 +14,16 @@ import Header from "./components/Header";
 import HeatmapOverlayLayer from "./components/HeatmapOverlayLayer";
 import Creators from "./components/Creators";
 import SearchBar from "./components/SearchBar";
+import ClusterPopup from "./components/ClusterPopup";
+import ForecastControls from "./components/ForecastControls";
+import FireSpreadLayer from "./components/FireSpreadLayer";
 
 /* ---- Hooks ---- */
 import useTimeline from "./hooks/useTimeline";
+
+/* ---- Utils ---- */
+import { generateSpreadForecast } from "./utils/forecastApi";
+import makeForecastHeatmap from "./utils/makeForecastHeatmap";
 
 export default function App() {
   // Imperative handle to the globe component
@@ -50,6 +57,14 @@ export default function App() {
     "2025 Fire Perimeters": true,
     "MODIS Hotspots": true,
   });
+
+  // Forecast state
+  const [selectedCluster, setSelectedCluster] = useState(null);
+  const [popupPosition, setPopupPosition] = useState(null);
+  const [forecastPredictions, setForecastPredictions] = useState(null);
+  const [forecastFrame, setForecastFrame] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
 
   // Keep this stable so GlobeCanvas doesn't re-init
   const initialView = useMemo(
@@ -107,6 +122,105 @@ export default function App() {
     globeRef.current?.setBase?.(name); // call GlobeCanvas' imperative API
   };
 
+  // Handle cluster click
+  const handleClusterClick = (cluster, position) => {
+    setSelectedCluster(cluster);
+    setPopupPosition(position);
+    // Stop any running forecast
+    setIsPlaying(false);
+  };
+
+  // Handle run forecast
+  const handleRunForecast = async (cluster, forecastHours) => {
+    try {
+      console.log("Running forecast for cluster:", cluster);
+      
+      // Close popup
+      setSelectedCluster(null);
+      setPopupPosition(null);
+      
+      // Generate predictions
+      const predictions = await generateSpreadForecast(
+        cluster.points, 
+        forecastHours,
+        "neural_network"
+      );
+      
+      // Group predictions by hour and generate heatmaps
+      const predictionsByHour = {};
+      predictions.forEach(pred => {
+        const hour = pred.time || 0;
+        if (!predictionsByHour[hour]) {
+          predictionsByHour[hour] = [];
+        }
+        predictionsByHour[hour].push(pred);
+      });
+      
+      // Generate heatmap for each time step
+      const forecastData = Object.keys(predictionsByHour)
+        .sort((a, b) => Number(a) - Number(b))
+        .map(hour => {
+          const preds = predictionsByHour[hour];
+          const { imageDataUrl, bbox } = makeForecastHeatmap(preds);
+          return {
+            hour: Number(hour),
+            imageDataUrl,
+            bbox,
+            predictions: preds
+          };
+        });
+      
+      setForecastPredictions(forecastData);
+      setForecastFrame(0);
+      setIsPlaying(true);
+      
+    } catch (error) {
+      console.error("Forecast generation failed:", error);
+      alert("Failed to generate forecast. Please try again.");
+    }
+  };
+
+  // Animation playback control
+  useEffect(() => {
+    if (!isPlaying || !forecastPredictions || forecastPredictions.length === 0) {
+      return;
+    }
+    
+    const interval = setInterval(() => {
+      setForecastFrame(frame => {
+        const nextFrame = frame + 1;
+        if (nextFrame >= forecastPredictions.length) {
+          setIsPlaying(false);
+          return frame; // Stay at last frame
+        }
+        return nextFrame;
+      });
+    }, 1000 / playbackSpeed); // Adjust speed
+    
+    return () => clearInterval(interval);
+  }, [isPlaying, forecastPredictions, playbackSpeed]);
+
+  const handleForecastPlayPause = () => {
+    if (forecastFrame >= forecastPredictions.length - 1) {
+      // Restart from beginning if at end
+      setForecastFrame(0);
+      setIsPlaying(true);
+    } else {
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const handleForecastSeek = (frame) => {
+    setForecastFrame(frame);
+    setIsPlaying(false);
+  };
+
+  const handleForecastStop = () => {
+    setIsPlaying(false);
+    setForecastPredictions(null);
+    setForecastFrame(0);
+  };
+
   const renderContent = () => {
     switch (currentView) {
       case 'creators':
@@ -146,8 +260,49 @@ export default function App() {
             {globeReady && (
               <>
                 <HeatmapOverlayLayer globeRef={globeRef} startDate={selectedDate} endDate={endDate} />
-                <FiresLayer globus={globeRef.current?.getGlobus?.()} startDate={selectedDate} endDate={endDate} />
+                {layers["MODIS Hotspots"] && (
+                  <FiresLayer 
+                    globus={globeRef.current?.getGlobus?.()} 
+                    startDate={selectedDate} 
+                    endDate={endDate}
+                    onClusterClick={handleClusterClick}
+                  />
+                )}
+                {forecastPredictions && (
+                  <FireSpreadLayer
+                    globeRef={globeRef}
+                    predictions={forecastPredictions}
+                    currentFrame={forecastFrame}
+                  />
+                )}
               </>
+            )}
+
+            {/* Cluster Popup */}
+            {selectedCluster && popupPosition && (
+              <ClusterPopup
+                cluster={selectedCluster}
+                position={popupPosition}
+                onClose={() => {
+                  setSelectedCluster(null);
+                  setPopupPosition(null);
+                }}
+                onRunForecast={handleRunForecast}
+              />
+            )}
+
+            {/* Forecast Controls */}
+            {forecastPredictions && (
+              <ForecastControls
+                isPlaying={isPlaying}
+                currentHour={forecastPredictions[forecastFrame]?.hour || 0}
+                totalHours={forecastPredictions[forecastPredictions.length - 1]?.hour || 0}
+                onPlayPause={handleForecastPlayPause}
+                onSeek={handleForecastSeek}
+                onStop={handleForecastStop}
+                onSpeedChange={setPlaybackSpeed}
+                speed={playbackSpeed}
+              />
             )}
 
             {/* === Overlay UI === */}
