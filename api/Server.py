@@ -256,7 +256,7 @@ def predict():
                 ),
             )
 
-        # Write per-request history
+                # Write per-block state (upsert on block_row, block_col)
         cur.execute(
             """
             INSERT INTO fire_cell_state (
@@ -273,6 +273,18 @@ def predict():
                 instant_spread_probability
             )
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (block_row, block_col)
+            DO UPDATE SET
+                block_id                   = EXCLUDED.block_id,
+                last_latitude              = EXCLUDED.last_latitude,
+                last_longitude             = EXCLUDED.last_longitude,
+                t                          = EXCLUDED.t,
+                t_burn                     = EXCLUDED.t_burn,
+                last_prob                  = EXCLUDED.last_prob,
+                prob_sum                   = fire_cell_state.prob_sum + EXCLUDED.last_prob,
+                prob_count                 = fire_cell_state.prob_count + 1,
+                instant_spread_probability = EXCLUDED.instant_spread_probability,
+                updated_at                 = now()
             """,
             (
                 block.row,
@@ -283,11 +295,12 @@ def predict():
                 new_T,
                 new_T_burn,
                 inst_prob,   # last_prob
-                inst_prob,   # prob_sum (start with this prob)
-                1,           # prob_count (first observation)
+                inst_prob,   # prob_sum initial (only used on first insert)
+                1,           # prob_count initial
                 inst_prob,   # instant_spread_probability
             ),
         )
+
 
         conn.commit()
         cur.close()
