@@ -350,4 +350,4 @@ def predict():
 
 if __name__ == "__main__":
     # Render will run this with `python Server.py`
-    app.run(host="0.0.0.0", port=10000, debug=True)
+    app.run(host="0.0.0.0", port=10000, debug=False)
