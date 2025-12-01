@@ -2,270 +2,270 @@
 """
 Model prediction utilities for Firecast-X.
 
-Supports:
-- Random Forest (scikit-learn)
-- Logistic Regression (scikit-learn)
-- PyTorch neural network
+- Supports three models:
+    * random_forest.joblib
+    * logreg.joblib
+    * pytorch_nn.pt
 
-All models assume the same ordered feature vector:
-    [
-        'latitude', 'longitude', 'brightness', 'bright_t31', 'confidence',
-        'daynight', 'elevation', 'slope', 'aspect',
-        'temp', 'humidity', 'wind_speed', 'precip', 'month'
-    ]
+- All model files are expected to live in:
+      ./models
+  next to this file, unless the environment variable MODEL_DIR
+  is set, in which case that directory is used instead.
 
-Each predict_* function returns a probability that the fire will spread.
+- Optionally uses:
+    * feature_cols.joblib  : list of feature names in the correct order
+    * scaler.joblib        : sklearn-style scaler with .transform()
 """
 
 import os
-import joblib
+from pathlib import Path
+from typing import Dict, Any
+
 import numpy as np
-
+import joblib
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 
-# ---------------------------------
-# 1) Feature order / config
-# ---------------------------------
+# ---------------------------------------------------------------------
+# Paths / directories
+# ---------------------------------------------------------------------
 
-FEATURE_COLUMNS = [
-    "latitude",
-    "longitude",
-    "brightness",
-    "bright_t31",
-    "confidence",
-    "daynight",
-    "elevation",
-    "slope",
-    "aspect",
-    "temp",
-    "humidity",
-    "wind_speed",
-    "precip",
-    "month",
-]
+BASE_DIR = Path(__file__).resolve().parent
 
 
-def _feature_dict_to_array(feature_dict: dict) -> np.ndarray:
+def _get_model_dir() -> Path:
     """
-    Convert incoming JSON dict into a 2D numpy array [1, n_features] in the
-    exact order defined in FEATURE_COLUMNS.
-
-    Missing features are treated as 0.0 (you can tighten this if you want).
+    Directory containing model artifacts.
+    Default: ./models next to this file.
+    Override with MODEL_DIR env var if desired.
     """
-    values = []
-    for key in FEATURE_COLUMNS:
-        v = feature_dict.get(key, 0.0)
-        try:
-            v = float(v)
-        except (TypeError, ValueError):
-            v = 0.0
-        values.append(v)
-    arr = np.array(values, dtype=np.float32).reshape(1, -1)
-    return arr
+    env_dir = os.environ.get("MODEL_DIR")
+    if env_dir:
+        return Path(env_dir)
+
+    return BASE_DIR / "models"
 
 
-# ---------------------------------
-# 2) PyTorch NN architecture
-# ---------------------------------
-
-class FireSpreadNN(nn.Module):
-    """
-    Feed-forward network used for the PyTorch model.
-
-    IMPORTANT:
-    This architecture must match what you used during training.
-    If your training script used a different layer structure,
-    adjust this class accordingly and re-deploy.
-    """
-
-    def __init__(self, input_dim: int):
-        super().__init__()
-        self.fc1 = nn.Linear(input_dim, 64)
-        self.fc2 = nn.Linear(64, 32)
-        self.fc3 = nn.Linear(32, 1)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = torch.sigmoid(self.fc3(x))  # output: probability in [0, 1]
-        return x
+MODEL_DIR = _get_model_dir()
 
 
-# ---------------------------------
-# 3) Lazy-loaded model globals
-# ---------------------------------
+# ---------------------------------------------------------------------
+# Lazy-loaded artifacts
+# ---------------------------------------------------------------------
 
+# sklearn models
 _rf_model = None
 _lr_model = None
+
+# PyTorch model
 _nn_model = None
-_device = torch.device("cpu")
+_nn_device = "cpu"
+
+# Optional artifacts
+_feature_cols = None
+_scaler = None
 
 
-def _get_model_dir() -> str:
-    """
-    Directory where model files live. Defaults to current working directory.
-    You can override with the MODEL_DIR environment variable.
-    """
-    return os.environ.get("MODEL_DIR", os.getcwd())
+def _load_feature_cols():
+    global _feature_cols
+    if _feature_cols is None:
+        path = MODEL_DIR / "feature_cols.joblib"
+        if path.exists():
+            _feature_cols = joblib.load(path)
+        else:
+            _feature_cols = None
+    return _feature_cols
 
 
-def _load_rf():
+def _load_scaler():
+    global _scaler
+    if _scaler is None:
+        path = MODEL_DIR / "scaler.joblib"
+        if path.exists():
+            _scaler = joblib.load(path)
+        else:
+            _scaler = None
+    return _scaler
+
+
+def _load_random_forest():
     global _rf_model
-    if _rf_model is not None:
-        return _rf_model
-
-    model_path = os.path.join(_get_model_dir(), "random_forest.joblib")
-    _rf_model = joblib.load(model_path)
+    if _rf_model is None:
+        path = MODEL_DIR / "random_forest.joblib"
+        _rf_model = joblib.load(path)
     return _rf_model
 
 
-def _load_lr():
+def _load_logreg():
     global _lr_model
-    if _lr_model is not None:
-        return _lr_model
-
-    model_path = os.path.join(_get_model_dir(), "logreg.joblib")
-    _lr_model = joblib.load(model_path)
+    if _lr_model is None:
+        path = MODEL_DIR / "logreg.joblib"
+        _lr_model = joblib.load(path)
     return _lr_model
 
 
-def _load_nn():
-    global _nn_model, _device
-    if _nn_model is not None:
-        return _nn_model
-
-    input_dim = len(FEATURE_COLUMNS)
-    model = FireSpreadNN(input_dim=input_dim)
-    model_path = os.path.join(_get_model_dir(), "pytorch_nn.pt")
-
-    # Map everything to CPU (Render free tier = no GPU)
-    state = torch.load(model_path, map_location=_device)
-    model.load_state_dict(state)
-    model.eval()
-
-    _nn_model = model
-    return _nn_model
-
-
-# ---------------------------------
-# 4) Per-model prediction helpers
-# ---------------------------------
-
-def predict_with_random_forest(features: dict) -> float:
+def _load_pytorch_nn():
     """
-    Returns probability of spread using the Random Forest model.
+    Loads the PyTorch neural network model.
+    Always runs on CPU (safest for Render / most backends).
     """
-    X = _feature_dict_to_array(features)
-    model = _load_rf()
+    global _nn_model, _nn_device
+    if _nn_model is None:
+        path = MODEL_DIR / "pytorch_nn.pt"
+        _nn_device = "cpu"
+        _nn_model = torch.load(path, map_location=_nn_device)
+        _nn_model.eval()
+    return _nn_model, _nn_device
 
-    # Assumes binary classification: model.predict_proba(...)[:, 1]
-    if hasattr(model, "predict_proba"):
-        proba = model.predict_proba(X)[0, 1]
-    else:
-        # fallback if it's a decision_function or something else
-        pred = model.predict(X)[0]
-        proba = float(pred)
 
+# ---------------------------------------------------------------------
+# Feature preparation
+# ---------------------------------------------------------------------
+
+def _prepare_feature_vector(features: Dict[str, Any]) -> np.ndarray:
+    """
+    Convert input feature dict into a 2D numpy array (1, n_features)
+    in the correct order.
+
+    - If feature_cols.joblib exists → enforce that order.
+    - Otherwise, use sorted(features.keys()) as a stable fallback.
+    """
+    cols = _load_feature_cols()
+
+    if cols is None:
+        # Fallback: all keys, sorted for determinism
+        cols = sorted(features.keys())
+
+    values = []
+    for name in cols:
+        if name not in features:
+            raise KeyError(f"Missing required feature: {name}")
+        values.append(float(features[name]))
+
+    x = np.array(values, dtype=np.float32).reshape(1, -1)
+
+    scaler = _load_scaler()
+    if scaler is not None:
+        x = scaler.transform(x)
+
+    return x
+
+
+# ---------------------------------------------------------------------
+# Model-specific prediction helpers
+# ---------------------------------------------------------------------
+
+def _predict_rf(x: np.ndarray) -> float:
+    model = _load_random_forest()
+    # predict_proba returns [ [p0, p1] ]
+    proba = model.predict_proba(x)[0][1]
     return float(proba)
 
 
-def predict_with_logistic_regression(features: dict) -> float:
-    """
-    Returns probability of spread using the Logistic Regression model.
-    """
-    X = _feature_dict_to_array(features)
-    model = _load_lr()
-
-    if hasattr(model, "predict_proba"):
-        proba = model.predict_proba(X)[0, 1]
-    else:
-        # fallback
-        pred = model.predict(X)[0]
-        proba = float(pred)
-
+def _predict_lr(x: np.ndarray) -> float:
+    model = _load_logreg()
+    proba = model.predict_proba(x)[0][1]
     return float(proba)
 
 
-def predict_with_nn(features: dict) -> float:
-    """
-    Returns probability of spread using the PyTorch NN model.
-    """
-    X = _feature_dict_to_array(features)
-    model = _load_nn()
+def _predict_nn(x: np.ndarray) -> float:
+    model, device = _load_pytorch_nn()
+
+    # Convert numpy → torch
+    xt = torch.from_numpy(x).float().to(device)
 
     with torch.no_grad():
-        x_t = torch.from_numpy(X).to(_device)
-        out = model(x_t)  # shape: [1, 1]
-        proba = float(out.item())
+        out = model(xt)
 
-    # Ensure it's in [0, 1]
-    proba = max(0.0, min(1.0, proba))
-    return proba
+    # Handle various output shapes:
+    #   - scalar
+    #   - (1, 1)
+    #   - (1, 2) logits
+    out_np = out.cpu().numpy()
+
+    if out_np.ndim == 0:
+        # single logit → sigmoid
+        prob = 1.0 / (1.0 + np.exp(-out_np))
+    elif out_np.shape == (1,) or out_np.shape == (1, 1):
+        logit = float(out_np.reshape(-1)[0])
+        prob = 1.0 / (1.0 + np.exp(-logit))
+    else:
+        # assume last dim is [p0, p1] or logits for 2 classes
+        vec = out_np.reshape(-1)
+        if vec.size == 2:
+            # apply softmax if these are logits
+            e = np.exp(vec - np.max(vec))
+            probs = e / e.sum()
+            prob = float(probs[1])
+        else:
+            # best-effort fallback: just take last value and sigmoid
+            logit = float(vec[-1])
+            prob = 1.0 / (1.0 + np.exp(-logit))
+
+    return float(prob)
 
 
-# ---------------------------------
-# 5) Unified prediction entry point
-# ---------------------------------
+# ---------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------
 
-def predict_fire_spread(input_features: dict, model_name: str = "random_forest") -> dict:
+def predict_fire_spread(features: Dict[str, Any], model_name: str = "random_forest") -> Dict[str, Any]:
     """
-    Unified prediction interface used by Server.py.
+    Main prediction entry point.
 
-    input_features: dict with all numeric inputs (lat, lon, weather, etc.).
-                    'model' key is ignored if present.
+    Parameters
+    ----------
+    features : dict
+        Mapping from feature name → value. Must contain all columns
+        expected by the model (or by feature_cols.joblib).
+    model_name : str
+        One of: "random_forest", "logistic_regression", "pytorch_nn".
 
-    model_name: one of "random_forest", "logistic_regression", "pytorch_nn".
-
-    Returns:
+    Returns
+    -------
+    dict
         {
-            "model": "...",
-            "spread_probability": <float>,
-            "features_used": [...],
+            "model": model_name,
+            "spread_probability": float between 0 and 1
         }
     """
-    # Make sure we ignore any "model" key in the payload itself:
-    features = {k: v for k, v in input_features.items() if k != "model"}
+    # Prepare numeric feature vector
+    x = _prepare_feature_vector(features)
 
-    model_name = (model_name or "").lower()
+    model_name = (model_name or "random_forest").lower()
 
     if model_name == "random_forest":
-        prob = predict_with_random_forest(features)
-    elif model_name in ("logistic_regression", "logreg", "log_reg"):
-        prob = predict_with_logistic_regression(features)
-    elif model_name in ("pytorch_nn", "nn", "neural_network"):
-        prob = predict_with_nn(features)
+        prob = _predict_rf(x)
+    elif model_name in ("logistic_regression", "logreg", "lr"):
+        prob = _predict_lr(x)
+    elif model_name in ("pytorch_nn", "nn", "neural_net", "neural_network"):
+        prob = _predict_nn(x)
     else:
-        # default fallback
-        prob = predict_with_random_forest(features)
-        model_name = "random_forest"
+        raise ValueError(f"Unknown model name: {model_name}")
 
     return {
         "model": model_name,
         "spread_probability": float(prob),
-        "features_used": FEATURE_COLUMNS,
     }
 
 
+# Simple local test hook
 if __name__ == "__main__":
-    # Quick manual test (you can run: python predictor.py locally)
-    sample = {
-        "latitude": 40,
-        "longitude": -120,
-        "brightness": 310,
-        "bright_t31": 290,
-        "confidence": 80,
+    # Example dummy call (adjust feature names/values to match your dataset)
+    example = {
+        "latitude": 37.1,
+        "longitude": -121.9,
+        "brightness": 350,
+        "bright_t31": 300,
+        "confidence": 90,
         "daynight": 1,
-        "elevation": 200,
-        "slope": 5,
-        "aspect": 0,
-        "temp": 30,
-        "humidity": 40,
-        "wind_speed": 6,
+        "elevation": 250,
+        "slope": 10,
+        "aspect": 180,
+        "temp": 35,
+        "humidity": 20,
+        "wind_speed": 12,
         "precip": 0,
-        "month": 8,
+        "month": 7,
     }
-    out = predict_fire_spread(sample, model_name="random_forest")
-    print(out)
+    print(predict_fire_spread(example, model_name="random_forest"))
