@@ -1,165 +1,182 @@
 # Server.py
-"""
-Flask API for Firecast-X
-
-- Receives lat/lon + weather/FIRMS features from Vercel frontend
-- Calls ML models via predictor.py (RF, LR, PyTorch NN)
-- Maps every coordinate in California into a 200 ft x 200 ft block
-- Maintains one row of state per block in Supabase (PostgreSQL):
-    * T       : how many time steps the block has been burning (0–12)
-    * T_burn  : fire state
-        0 = no fire
-        1 = fire burning
-        2 = fire burned out
-        3 = cannot burn (water, etc.)
-    * prob_sum / prob_count : used to compute the BLOCK AVERAGE spread probability
-
-On each /predict call:
-    1) Compute a point-level probability with the selected model
-    2) Snap (lat, lon) into a 200 ft block over California
-    3) Update that block's running average probability
-    4) Update T and T_burn based on the BLOCK AVERAGE (not just this sample)
-    5) Return the block state + averaged probability to the caller
-"""
 
 import os
-import math
 import json
+import math
+from datetime import datetime
 
-import psycopg2
 from flask import Flask, request, jsonify
+from flask_cors import CORS
+import psycopg2
 
-from predictor import predict_fire_spread  # uses all 3 models under the hood
+from predictor import predict_fire_spread  # uses RF, LR, PyTorch NN
 
 app = Flask(__name__)
+CORS(app)
 
 # -------------------------
-# 1) Fire + block constants
+# Constants
 # -------------------------
 
-FIRE_THRESHOLD = 0.75   # probability threshold for "fire present"
-T_MAX = 12              # after this many steps in state=1, mark as burned out (2)
+FIRE_THRESHOLD = 0.75  # 75% probability to consider it "fire"
+T_MAX = 12             # T goes from 0 to 12
 
-# Rough bounds for California (not strict, just a reasonable box)
-CALIFORNIA_MIN_LAT = 32.0
-CALIFORNIA_MAX_LAT = 42.5
-CALIFORNIA_MIN_LON = -125.0
-CALIFORNIA_MAX_LON = -113.5
+# Grid settings (~200 ft blocks)
+# Approximate: 200 ft ≈ 61 meters
+# 1 degree latitude ≈ 111_320 m → ~0.000548 deg
+GRID_LAT_MIN = 32.0      # rough min lat for region
+GRID_LON_MIN = -125.0    # rough min lon for region
+CELL_SIZE_METERS = 61.0
+DEG_PER_M_LAT = 1.0 / 111320.0
+CELL_SIZE_DEG_LAT = CELL_SIZE_METERS * DEG_PER_M_LAT
 
-# Block size ~200 ft in both directions
-BLOCK_SIZE_FT = 200.0
-BLOCK_SIZE_M = BLOCK_SIZE_FT * 0.3048  # feet → meters
+# For longitude, adjust by a mid-latitude cosine
+MID_LAT_DEG = 37.0
+MID_LAT_RAD = math.radians(MID_LAT_DEG)
+DEG_PER_M_LON = 1.0 / (111320.0 * math.cos(MID_LAT_RAD))
+CELL_SIZE_DEG_LON = CELL_SIZE_METERS * DEG_PER_M_LON
 
-METERS_PER_DEG_LAT = 111_320.0
-CALIFORNIA_MID_LAT = 37.0
-METERS_PER_DEG_LON = METERS_PER_DEG_LAT * math.cos(math.radians(CALIFORNIA_MID_LAT))
-
-DEG_LAT_PER_BLOCK = BLOCK_SIZE_M / METERS_PER_DEG_LAT
-DEG_LON_PER_BLOCK = BLOCK_SIZE_M / METERS_PER_DEG_LON
-
-
-def lat_lon_to_block(lat: float, lon: float):
-    """
-    Convert a lat/lon into a (block_row, block_col, block_id, block_center_lat, block_center_lon)
-    using a fixed 200 ft grid over California.
-
-    We don't pre-create all blocks in the DB. We just compute the row/col indices
-    and lazily insert/update rows as calls come in.
-    """
-    # Clamp to the rough California box (so crazy outliers don't break indices)
-    clamped_lat = max(min(lat, CALIFORNIA_MAX_LAT), CALIFORNIA_MIN_LAT)
-    clamped_lon = max(min(lon, CALIFORNIA_MAX_LON), CALIFORNIA_MIN_LON)
-
-    row = math.floor((clamped_lat - CALIFORNIA_MIN_LAT) / DEG_LAT_PER_BLOCK)
-    col = math.floor((clamped_lon - CALIFORNIA_MIN_LON) / DEG_LON_PER_BLOCK)
-
-    center_lat = CALIFORNIA_MIN_LAT + (row + 0.5) * DEG_LAT_PER_BLOCK
-    center_lon = CALIFORNIA_MIN_LON + (col + 0.5) * DEG_LON_PER_BLOCK
-
-    block_id = f"CA-{row}-{col}"
-    return row, col, block_id, center_lat, center_lon
-
+GRID_REGION_CODE = "CA"  # used in block_id like "CA-row-col"
 
 # -------------------------
-# 2) DB connection
+# Database connection (Supabase / Postgres)
 # -------------------------
 
 def get_db_conn():
-    """
-    Prefer DATABASE_URL (for Supabase / Render), fallback to explicit env vars,
-    and finally a local dev config.
-    """
-    url = os.environ.get("DATABASE_URL")
-    if url:
-        # Supabase typically requires SSL
-        return psycopg2.connect(url, sslmode=os.environ.get("DB_SSLMODE", "require"))
-
-    host = os.environ.get("DB_HOST")
-    if host:
-        return psycopg2.connect(
-            host=host,
-            port=os.environ.get("DB_PORT", 5432),
-            dbname=os.environ.get("DB_NAME", "postgres"),
-            user=os.environ.get("DB_USER", "postgres"),
-            password=os.environ.get("DB_PASSWORD", ""),
-            sslmode=os.environ.get("DB_SSLMODE", "require"),
-        )
-
-    # Local dev fallback (matches your earlier config)
     return psycopg2.connect(
-        host="localhost",
-        port=5433,
-        dbname="firecast",
-        user="postgres",
-        password="SE4485!",
+        host=os.environ["DB_HOST"],
+        port=os.environ.get("DB_PORT", "5432"),
+        dbname=os.environ["DB_NAME"],
+        user=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
+        sslmode="require"
     )
 
+# -------------------------
+# Grid helper
+# -------------------------
+
+def snap_to_block(latitude: float, longitude: float):
+    """
+    Snap (lat, lon) into a ~200 ft × 200 ft grid cell.
+
+    Returns:
+      block_row, block_col, center_lat, center_lon, block_id
+    """
+    # Row index from latitude
+    row = int(math.floor((latitude - GRID_LAT_MIN) / CELL_SIZE_DEG_LAT))
+    # Column index from longitude
+    col = int(math.floor((longitude - GRID_LON_MIN) / CELL_SIZE_DEG_LON))
+
+    center_lat = GRID_LAT_MIN + (row + 0.5) * CELL_SIZE_DEG_LAT
+    center_lon = GRID_LON_MIN + (col + 0.5) * CELL_SIZE_DEG_LON
+
+    block_id = f"{GRID_REGION_CODE}-{row}-{col}"
+
+    return row, col, center_lat, center_lon, block_id
 
 # -------------------------
-# 3) Fire state + averaging logic
+# Health check
 # -------------------------
 
-def update_fire_block_state(
-    cur,
-    block_row: int,
-    block_col: int,
-    block_id: str,
-    block_center_lat: float,
-    block_center_lon: float,
-    new_prob: float,
-    can_burn: bool = True,
-):
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({
+        "status": "Firecast API running",
+        "endpoints": ["/predict", "/predict-nn", "/db-test"]
+    })
+
+# -------------------------
+# DB connectivity test
+# -------------------------
+
+@app.route("/db-test", methods=["GET"])
+def db_test():
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT NOW();")
+        (now_value,) = cur.fetchone()
+        cur.close()
+        conn.close()
+        return jsonify({"status": "connected", "now": now_value.isoformat()})
+    except Exception as e:
+        return jsonify({"status": "error", "detail": str(e)}), 500
+
+# -------------------------
+# Helper: log prediction to DB (existing table)
+# -------------------------
+
+def log_prediction_to_db(model_name: str, request_data: dict, result: dict):
     """
-    Given a point-level probability for a coordinate that belongs to this block,
-    update the block's:
-      - running average probability (prob_sum, prob_count)
-      - T and T_burn based on the *new block-average* probability.
+    Insert a row into firecast_predictions:
 
-    Expected DB schema for fire_cell_state:
-
-        CREATE TABLE IF NOT EXISTS fire_cell_state (
-            id BIGSERIAL PRIMARY KEY,
-            block_row      INTEGER NOT NULL,
-            block_col      INTEGER NOT NULL,
-            block_id       TEXT    NOT NULL,
-            last_latitude  DOUBLE PRECISION,
-            last_longitude DOUBLE PRECISION,
-            t              INTEGER NOT NULL,
-            t_burn         INTEGER NOT NULL,
-            last_prob      DOUBLE PRECISION,
-            prob_sum       DOUBLE PRECISION NOT NULL,
-            prob_count     BIGINT NOT NULL,
-            updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            UNIQUE (block_row, block_col)
-        );
-
-    Returns (T, T_burn, avg_prob).
+      CREATE TABLE firecast_predictions (
+          id SERIAL PRIMARY KEY,
+          model_name TEXT NOT NULL,
+          input_json JSONB NOT NULL,
+          prediction_value DOUBLE PRECISION,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+      );
     """
-    # 1) Load previous state (if any)
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+
+        prediction_value = result.get("spread_probability")
+
+        insert_sql = """
+            INSERT INTO firecast_predictions (model_name, input_json, prediction_value)
+            VALUES (%s, %s, %s);
+        """
+        cur.execute(
+            insert_sql,
+            (
+                model_name,
+                json.dumps(request_data),
+                prediction_value,
+            ),
+        )
+
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        # Don't crash the API if logging fails; just print error on server
+        print("DB insert error:", e)
+        result["db_log_error"] = str(e)
+
+# -------------------------
+# Helper: update block_index (per-block average prob)
+# -------------------------
+
+def update_block_index(block_row: int,
+                       block_col: int,
+                       block_id: str,
+                       prob: float) -> float:
+    """
+    Maintain a running average probability per block.
+
+    Table:
+
+      CREATE TABLE IF NOT EXISTS block_index (
+          block_row    INTEGER NOT NULL,
+          block_col    INTEGER NOT NULL,
+          block_id     TEXT    NOT NULL,
+          sample_count INTEGER NOT NULL DEFAULT 0,
+          avg_prob     DOUBLE PRECISION NOT NULL DEFAULT 0,
+          updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (block_row, block_col)
+      );
+    """
+    conn = get_db_conn()
+    cur = conn.cursor()
+
+    # Get previous stats
     cur.execute(
         """
-        SELECT t, t_burn, prob_sum, prob_count
-        FROM fire_cell_state
+        SELECT sample_count, avg_prob
+        FROM block_index
         WHERE block_row = %s AND block_col = %s;
         """,
         (block_row, block_col),
@@ -167,321 +184,295 @@ def update_fire_block_state(
     row = cur.fetchone()
 
     if row:
-        prev_t, prev_state, prev_sum, prev_count = row
+        prev_count, prev_avg = row
+        new_count = prev_count + 1
+        new_avg = (prev_avg * prev_count + prob) / float(new_count)
     else:
-        prev_t, prev_state, prev_sum, prev_count = 0, 0, 0.0, 0
+        new_count = 1
+        new_avg = prob
 
-    # 2) If this block cannot burn, force state = 3
+    # Upsert
+    cur.execute(
+        """
+        INSERT INTO block_index (block_row, block_col, block_id, sample_count, avg_prob, updated_at)
+        VALUES (%s, %s, %s, %s, %s, NOW())
+        ON CONFLICT (block_row, block_col)
+        DO UPDATE SET
+            block_id     = EXCLUDED.block_id,
+            sample_count = EXCLUDED.sample_count,
+            avg_prob     = EXCLUDED.avg_prob,
+            updated_at   = NOW();
+        """,
+        (block_row, block_col, block_id, new_count, new_avg),
+    )
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return float(new_avg)
+
+# -------------------------
+# Helper: update T and T_burn per block
+# -------------------------
+
+def update_fire_state_for_block(block_row: int,
+                                block_col: int,
+                                block_id: str,
+                                instant_prob: float,
+                                block_avg_prob: float,
+                                can_burn: bool = True):
+    """
+    Maintain fire_cell_state per grid block with T and T_burn.
+
+    States:
+      0 = no fire at this block
+      1 = currently burning
+      2 = burned out (was burning, now stopped)
+      3 = cannot burn (water, etc.)
+
+    Rules:
+      - If can_burn is False → state 3, T = 0 always.
+      - If instant_prob >= FIRE_THRESHOLD:
+            if previous state in (0, 2) → new fire: T=0, state=1
+            if previous state == 1 → T = min(prev_T + 1, T_MAX)
+            if previous state == 3 → stay 3, T unchanged
+      - If instant_prob < FIRE_THRESHOLD:
+            if previous state == 1 → state=2 (burned out), T stays same
+            if previous state in (0, 2, 3) → keep T, keep state
+
+    Table:
+
+      CREATE TABLE IF NOT EXISTS fire_cell_state (
+          block_row        INTEGER NOT NULL,
+          block_col        INTEGER NOT NULL,
+          block_id         TEXT    NOT NULL,
+          t                SMALLINT NOT NULL DEFAULT 0 CHECK (t BETWEEN 0 AND 12),
+          t_burn           SMALLINT NOT NULL DEFAULT 0 CHECK (t_burn BETWEEN 0 AND 3),
+          instant_prob     DOUBLE PRECISION,
+          block_avg_prob   DOUBLE PRECISION,
+          updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (block_row, block_col)
+      );
+    """
+    conn = get_db_conn()
+    cur = conn.cursor()
+
+    # 1. Fetch previous state
+    cur.execute(
+        """
+        SELECT t, t_burn
+        FROM fire_cell_state
+        WHERE block_row = %s AND block_col = %s;
+        """,
+        (block_row, block_col),
+    )
+    row = cur.fetchone()
+    if row:
+        prev_t, prev_state = row
+    else:
+        prev_t, prev_state = 0, 0
+
+    # 2. Apply rules
     if not can_burn:
         new_t = 0
         new_state = 3
-        new_sum = prev_sum  # ignore this sample for avg
-        new_count = prev_count
-        avg_prob = (new_sum / new_count) if new_count > 0 else 0.0
     else:
-        # Update running average with this new sample
-        new_sum = float(prev_sum) + float(new_prob)
-        new_count = prev_count + 1
-        avg_prob = new_sum / new_count if new_count > 0 else 0.0
-
-        # 3) State machine based on BLOCK-AVERAGE probability
-        prev_state = int(prev_state)
-        prev_t = int(prev_t)
-
-        if prev_state == 3:
-            # Cannot ever burn (water, etc.) – keep it locked
-            new_state = 3
-            new_t = 0
-        elif prev_state == 0:
-            # No fire yet
-            if avg_prob >= FIRE_THRESHOLD:
+        if instant_prob >= FIRE_THRESHOLD:
+            if prev_state in (0, 2):
+                new_t = 0
                 new_state = 1
-                new_t = 1
+            elif prev_state == 1:
+                new_t = min(prev_t + 1, T_MAX)
+                new_state = 1
+            elif prev_state == 3:
+                new_t = prev_t
+                new_state = 3
             else:
-                new_state = 0
                 new_t = 0
-        elif prev_state == 1:
-            # Currently burning
-            if avg_prob >= FIRE_THRESHOLD:
-                if prev_t < T_MAX:
-                    new_state = 1
-                    new_t = prev_t + 1
-                else:
-                    # reached max burn time, mark as burned out
-                    new_state = 2
-                    new_t = T_MAX
-            else:
-                # dropped below threshold early → reset to "no fire"
-                new_state = 0
-                new_t = 0
+                new_state = 1
         else:
-            # prev_state == 2 (burned out) or any other value → stay burned out
-            new_state = 2
-            new_t = prev_t
+            if prev_state == 1:
+                new_t = prev_t
+                new_state = 2
+            elif prev_state in (2, 3):
+                new_t = prev_t
+                new_state = prev_state
+            else:
+                new_t = 0
+                new_state = 0
 
-    # --- Ensure block_index row exists ---
-    cur.execute(
-        """
-        INSERT INTO block_index (
-            block_id, block_row, block_col,
-            center_lat, center_lon,
-            min_lat, max_lat, min_lon, max_lon
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (block_id) DO NOTHING;
-        """,
-        (
-            block_id,
-            block_row,
-            block_col,
-            block_center_lat,
-            block_center_lon,
-            block_center_lat - (DEG_LAT_PER_BLOCK / 2),
-            block_center_lat + (DEG_LAT_PER_BLOCK / 2),
-            block_center_lon - (DEG_LON_PER_BLOCK / 2),
-            block_center_lon + (DEG_LON_PER_BLOCK / 2),
-        ),
-    )
-
-    # 4) Upsert the new state back into DB
+    # 3. Upsert
     cur.execute(
         """
         INSERT INTO fire_cell_state (
-            block_row,
-            block_col,
-            block_id,
-            last_latitude,
-            last_longitude,
-            t,
-            t_burn,
-            last_prob,
-            prob_sum,
-            prob_count,
+            block_row, block_col, block_id,
+            t, t_burn,
+            instant_prob, block_avg_prob,
             updated_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
         ON CONFLICT (block_row, block_col)
         DO UPDATE SET
             block_id       = EXCLUDED.block_id,
-            last_latitude  = EXCLUDED.last_latitude,
-            last_longitude = EXCLUDED.last_longitude,
             t              = EXCLUDED.t,
             t_burn         = EXCLUDED.t_burn,
-            last_prob      = EXCLUDED.last_prob,
-            prob_sum       = EXCLUDED.prob_sum,
-            prob_count     = EXCLUDED.prob_count,
+            instant_prob   = EXCLUDED.instant_prob,
+            block_avg_prob = EXCLUDED.block_avg_prob,
             updated_at     = NOW();
         """,
-        (
-            block_row,
-            block_col,
-            block_id,
-            block_center_lat,
-            block_center_lon,
-            new_t,
-            new_state,
-            float(new_prob),
-            float(new_sum),
-            int(new_count),
-        ),
+        (block_row, block_col, block_id,
+         new_t, new_state,
+         instant_prob, block_avg_prob),
     )
 
-    return int(new_t), int(new_state), float(avg_prob)
+    conn.commit()
+    cur.close()
+    conn.close()
 
-
-def log_prediction_to_db(cur, model_name: str, request_data: dict, prob: float):
-    """
-    Log raw prediction request + single-sample probability into firecast_predictions.
-
-    Expected DB schema:
-
-        CREATE TABLE IF NOT EXISTS firecast_predictions (
-            id BIGSERIAL PRIMARY KEY,
-            model_name        TEXT    NOT NULL,
-            input_json        JSONB   NOT NULL,
-            prediction_value  DOUBLE PRECISION,
-            created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-    """
-    cur.execute(
-        """
-        INSERT INTO firecast_predictions (model_name, input_json, prediction_value)
-        VALUES (%s, %s, %s);
-        """,
-        (model_name, json.dumps(request_data), float(prob)),
-    )
-
+    return new_t, new_state
 
 # -------------------------
-# 4) Health endpoints
-# -------------------------
-
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "ok"})
-
-
-@app.route("/db-test", methods=["GET"])
-def db_test():
-    try:
-        conn = get_db_conn()
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT NOW();")
-                (ts,) = cur.fetchone()
-        return jsonify({"status": "connected", "server_time": ts.isoformat()})
-    except Exception as e:
-        return jsonify({"status": "error", "detail": str(e)}), 500
-
-
-# -------------------------
-# 5) Prediction endpoint
+# Main predict endpoint
 # -------------------------
 
 @app.route("/predict", methods=["POST"])
-def predict():
-    """
-    Main prediction route.
-    """
+def predict_general():
     try:
-        if not request.data:
-            return jsonify({"error": "no JSON body"}), 400
+        data = request.get_json(silent=True)
+        if data is None:
+            return jsonify({"error": "Invalid or missing JSON body"}), 400
 
-        payload = request.get_json(silent=True)
-        if payload is None:
-            return jsonify({"error": "invalid JSON"}), 400
+        # Which model? default: random_forest
+        model_name = data.get("model", "random_forest")
+        allowed = ["random_forest", "logistic_regression", "pytorch_nn"]
 
-        # Model choice (optional)
-        model_name = payload.get("model", "random_forest")
-
-        # Required coords
-        try:
-            lat = float(payload["latitude"])
-            lon = float(payload["longitude"])
-        except KeyError as e:
-            return jsonify({"error": f"missing field: {e}"}), 400
-        except (TypeError, ValueError):
-            return jsonify({"error": "latitude/longitude must be numeric"}), 400
-
-        can_burn = bool(payload.get("can_burn", True))
-
-        # predictor.py should receive ONLY the feature dict, not "model"
-        feature_input = {k: v for k, v in payload.items() if k != "model"}
-
-        # 1) Single-sample prediction from ML model  <<< CHANGED BLOCK
-        try:
-            model_result = predict_fire_spread(feature_input, model_name=model_name)
-        except Exception as e:
-            # This is what’s causing your 500 right now – surfacing it makes it debuggable
+        if model_name not in allowed:
             return jsonify({
-                "error": "model_error",
-                "detail": str(e),
-                "model": model_name,
-            }), 500
+                "error": "Invalid model",
+                "allowed": allowed
+            }), 400
 
-        instant_prob = float(model_result.get("spread_probability", 0.0))
+        # Run model (your original predictor)
+        result = predict_fire_spread(data, model_name=model_name)
+        prob = float(result.get("spread_probability", 0.0))
 
-        # 2) Map to 200 ft block
-        block_row, block_col, block_id, block_center_lat, block_center_lon = lat_lon_to_block(
-            lat, lon
+        # Snap to grid block
+        latitude = float(data["latitude"])
+        longitude = float(data["longitude"])
+        block_row, block_col, center_lat, center_lon, block_id = snap_to_block(
+            latitude, longitude
         )
 
-        # 3) Update DB: block state + prediction log
-        db_error = None
-        T = 0
-        T_burn = 0
-        avg_prob = instant_prob
+        # Whether this block can burn (optional key; default True)
+        can_burn = bool(data.get("can_burn", True))
 
-        try:
-            conn = get_db_conn()
-            with conn:
-                with conn.cursor() as cur:
-                    # update block state (uses averaged probability)
-                    T, T_burn, avg_prob = update_fire_block_state(
-                        cur,
-                        block_row,
-                        block_col,
-                        block_id,
-                        block_center_lat,
-                        block_center_lon,
-                        instant_prob,
-                        can_burn=can_burn,
-                    )
-                    # log raw prediction
-                    log_prediction_to_db(cur, model_name, payload, instant_prob)
-        except Exception as e:
-            db_error = str(e)
+        # Update average probability per block
+        block_avg_prob = update_block_index(
+            block_row=block_row,
+            block_col=block_col,
+            block_id=block_id,
+            prob=prob
+        )
 
-        # 4) Build response back to caller
-        response = {
-            "model": model_name,
-            "block_id": block_id,
-            "block_row": block_row,
-            "block_col": block_col,
-            "block_center_latitude": block_center_lat,
-            "block_center_longitude": block_center_lon,
-            "T": T,
-            "T_burn": T_burn,
-            "instant_spread_probability": instant_prob,
-            "block_avg_spread_probability": avg_prob,
-            "prediction": "Spread" if avg_prob >= FIRE_THRESHOLD else "No Spread",
-        }
+        # Update timeline state (T, T_burn) for this block
+        T, T_burn = update_fire_state_for_block(
+            block_row=block_row,
+            block_col=block_col,
+            block_id=block_id,
+            instant_prob=prob,
+            block_avg_prob=block_avg_prob,
+            can_burn=can_burn
+        )
 
-        if db_error:
-            response["db_log_error"] = db_error
+        # Attach grid + timeline info to API response
+        result["instant_spread_probability"] = prob
+        result["block_avg_spread_probability"] = block_avg_prob
+        result["T"] = T
+        result["T_burn"] = T_burn
 
-        return jsonify(response)
+        result["block_row"] = block_row
+        result["block_col"] = block_col
+        result["block_id"] = block_id
+        result["block_center_latitude"] = center_lat
+        result["block_center_longitude"] = center_lon
+
+        # Log prediction
+        log_prediction_to_db(model_name, data, result)
+
+        return jsonify(result)
 
     except Exception as e:
-        return jsonify(
-            {
-                "error": "unexpected error in /predict",
-                "detail": str(e),
-            }
-        ), 500
-
+        return jsonify({
+            "error": "unexpected error in /predict",
+            "detail": str(e),
+        }), 500
 
 # -------------------------
-# 6) Convenience route for just NN
+# Convenience: neural network only
 # -------------------------
 
 @app.route("/predict-nn", methods=["POST"])
 def predict_nn():
-    """
-    Shortcut: same as /predict but forces model = "pytorch_nn".
-    """
     try:
-        if not request.data:
-            return jsonify({"error": "no JSON body"}), 400
+        data = request.get_json(silent=True)
+        if data is None:
+            return jsonify({"error": "Invalid or missing JSON body"}), 400
 
-        payload = request.get_json(silent=True)
-        if payload is None:
-            return jsonify({"error": "invalid JSON"}), 400
+        model_name = "pytorch_nn"
+        result = predict_fire_spread(data, model_name=model_name)
+        prob = float(result.get("spread_probability", 0.0))
 
-        payload["model"] = "pytorch_nn"
-        # Reuse /predict logic by calling the function directly
-        with app.test_request_context(
-            "/predict",
-            method="POST",
-            json=payload,
-        ):
-            return predict()
+        # Snap to same grid as /predict
+        latitude = float(data["latitude"])
+        longitude = float(data["longitude"])
+        block_row, block_col, center_lat, center_lon, block_id = snap_to_block(
+            latitude, longitude
+        )
+
+        can_burn = bool(data.get("can_burn", True))
+
+        block_avg_prob = update_block_index(
+            block_row=block_row,
+            block_col=block_col,
+            block_id=block_id,
+            prob=prob
+        )
+
+        T, T_burn = update_fire_state_for_block(
+            block_row=block_row,
+            block_col=block_col,
+            block_id=block_id,
+            instant_prob=prob,
+            block_avg_prob=block_avg_prob,
+            can_burn=can_burn
+        )
+
+        result["instant_spread_probability"] = prob
+        result["block_avg_spread_probability"] = block_avg_prob
+        result["T"] = T
+        result["T_burn"] = T_burn
+
+        result["block_row"] = block_row
+        result["block_col"] = block_col
+        result["block_id"] = block_id
+        result["block_center_latitude"] = center_lat
+        result["block_center_longitude"] = center_lon
+
+        log_prediction_to_db(model_name, data, result)
+
+        return jsonify(result)
 
     except Exception as e:
-        return jsonify(
-            {
-                "error": "unexpected error in /predict-nn",
-                "detail": str(e),
-            }
-        ), 500
-
+        return jsonify({
+            "error": "unexpected error in /predict-nn",
+            "detail": str(e),
+        }), 500
 
 # -------------------------
-# 7) Main
+# Entry point
 # -------------------------
 
 if __name__ == "__main__":
-    # Render injects PORT; default to 5000 for local dev
     port = int(os.environ.get("PORT", 5000))
-    # IMPORTANT: debug must be False on Render so the reloader doesn't run
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(host="0.0.0.0", port=port)

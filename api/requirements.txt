@@ -5,4 +5,4 @@ pandas
 joblib
 psycopg2-binary
 torch
-scikit-learn==1.6.1
+scikit-learn
