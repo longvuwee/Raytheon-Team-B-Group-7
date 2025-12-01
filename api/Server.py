@@ -342,31 +342,6 @@ def db_test():
 def predict():
     """
     Main prediction route.
-
-    Request JSON must include at least:
-        - model      : "random_forest", "logistic_regression", or "pytorch_nn"
-        - latitude
-        - longitude
-        - plus all other numeric features expected by predictor.py
-
-    Optional:
-        - can_burn   : boolean (default True). If False → T_burn = 3 for this block.
-
-    Response JSON includes (per BLOCK):
-        {
-          "model": "...",
-          "block_id": "CA-123-456",
-          "block_row": 123,
-          "block_col": 456,
-          "block_center_latitude": ...,
-          "block_center_longitude": ...,
-          "T": 1,
-          "T_burn": 1,
-          "instant_spread_probability": 0.91,
-          "block_avg_spread_probability": 0.88,
-          "prediction": "Spread",      # based on BLOCK AVERAGE
-          "db_log_error": "...",       # only if logging failed
-        }
     """
     try:
         if not request.data:
@@ -393,8 +368,17 @@ def predict():
         # predictor.py should receive ONLY the feature dict, not "model"
         feature_input = {k: v for k, v in payload.items() if k != "model"}
 
-        # 1) Single-sample prediction from ML model
-        model_result = predict_fire_spread(feature_input, model_name=model_name)
+        # 1) Single-sample prediction from ML model  <<< CHANGED BLOCK
+        try:
+            model_result = predict_fire_spread(feature_input, model_name=model_name)
+        except Exception as e:
+            # This is what’s causing your 500 right now – surfacing it makes it debuggable
+            return jsonify({
+                "error": "model_error",
+                "detail": str(e),
+                "model": model_name,
+            }), 500
+
         instant_prob = float(model_result.get("spread_probability", 0.0))
 
         # 2) Map to 200 ft block
@@ -440,7 +424,6 @@ def predict():
             "T_burn": T_burn,
             "instant_spread_probability": instant_prob,
             "block_avg_spread_probability": avg_prob,
-            # final fire/no-fire label based on BLOCK-AVERAGE probability
             "prediction": "Spread" if avg_prob >= FIRE_THRESHOLD else "No Spread",
         }
 
