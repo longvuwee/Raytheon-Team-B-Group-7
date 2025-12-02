@@ -514,7 +514,7 @@ def predict():
         # Update T and T_burn
         new_T, new_T_burn = update_timeline(old_T, old_T_burn, inst_prob, can_burn)
 
-        # For now we just overwrite avg with this instant prob
+        # Derive running average from fire_cell_state if available; fallback to instant prob
         block_avg_prob = inst_prob
 
         # Upsert block_index
@@ -594,7 +594,7 @@ def predict():
                 t                          = EXCLUDED.t,
                 t_burn                     = EXCLUDED.t_burn,
                 last_prob                  = EXCLUDED.last_prob,
-                prob_sum                   = fire_cell_state.prob_sum + EXCLUDED.last_prob,
+                prob_sum                   = fire_cell_state.prob_sum + EXCLUDED.instant_spread_probability,
                 prob_count                 = fire_cell_state.prob_count + 1,
                 instant_spread_probability = EXCLUDED.instant_spread_probability,
                 updated_at                 = now()
@@ -611,6 +611,23 @@ def predict():
                 inst_prob,   # prob_sum initial (only used on first insert)
                 1,           # prob_count initial
                 inst_prob,   # instant_spread_probability
+            ),
+        )
+
+        # Update block_avg_spread_probability based on accumulated samples
+        cur.execute(
+            """
+            UPDATE block_index b
+            SET block_avg_spread_probability = COALESCE(f.prob_sum / NULLIF(f.prob_count, 0), %s),
+                updated_at = now()
+            FROM fire_cell_state f
+            WHERE b.block_id = %s AND f.block_row = %s AND f.block_col = %s
+            """,
+            (
+                inst_prob,
+                block.block_id,
+                block.row,
+                block.col,
             ),
         )
 
@@ -950,7 +967,7 @@ def predict_spread_animation():
             # Persist per-cell state if DB available
             if cur is not None:
                 try:
-                    # Upsert block_index with latest T/T_burn and average prob (use current prob)
+                    # Upsert block_index with latest T/T_burn; avg updated after fire_cell_state upsert
                     cur.execute(
                         """
                         INSERT INTO block_index (
@@ -964,7 +981,7 @@ def predict_spread_animation():
                             block_center_longitude = EXCLUDED.block_center_longitude,
                             T = EXCLUDED.T,
                             T_burn = EXCLUDED.T_burn,
-                            block_avg_spread_probability = EXCLUDED.block_avg_spread_probability,
+                            block_avg_spread_probability = block_index.block_avg_spread_probability,
                             updated_at = now()
                         """,
                         (
@@ -993,7 +1010,7 @@ def predict_spread_animation():
                             t = EXCLUDED.t,
                             t_burn = EXCLUDED.t_burn,
                             last_prob = EXCLUDED.last_prob,
-                            prob_sum = fire_cell_state.prob_sum + EXCLUDED.last_prob,
+                            prob_sum = fire_cell_state.prob_sum + EXCLUDED.instant_spread_probability,
                             prob_count = fire_cell_state.prob_count + 1,
                             instant_spread_probability = EXCLUDED.instant_spread_probability,
                             updated_at = now()
@@ -1010,6 +1027,23 @@ def predict_spread_animation():
                             prob,
                             1,
                             prob,
+                        ),
+                    )
+
+                    # Derive and store block average from accumulated samples
+                    cur.execute(
+                        """
+                        UPDATE block_index b
+                        SET block_avg_spread_probability = COALESCE(f.prob_sum / NULLIF(f.prob_count, 0), %s),
+                            updated_at = now()
+                        FROM fire_cell_state f
+                        WHERE b.block_id = %s AND f.block_row = %s AND f.block_col = %s
+                        """,
+                        (
+                            prob,
+                            nb_id,
+                            meta["row"],
+                            meta["col"],
                         ),
                     )
                 except Exception:
