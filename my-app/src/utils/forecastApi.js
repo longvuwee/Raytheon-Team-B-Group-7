@@ -44,20 +44,26 @@ async function requestWithLogging(url, options = {}) {
  * @param {Array} clusterPoints - Array of fire points with lat, lon, brightness, etc.
  * @param {number} forecastHours - Number of hours to forecast
  * @param {string} modelName - Model to use (neural_network, random_forest, logreg)
- * @returns {Promise<Array>} Array of predictions for each time step
+ * @param {boolean} computeInitialOnly - If true, only compute step 0 (for incremental mode)
+ * @returns {Promise<Object>} Response with simulation_id and predictions
  */
-export async function generateSpreadForecast(clusterPoints, forecastHours = 24, modelName = "neural_network") {
+export async function generateSpreadForecast(clusterPoints, forecastHours = 24, modelName = "neural_network", computeInitialOnly = false) {
   try {
     const url = `${API_BASE_URL}/predict-spread-animation`;
     const response = await requestWithLogging(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cluster: clusterPoints, time_steps: forecastHours, model_name: modelName }),
+      body: JSON.stringify({ 
+        cluster: clusterPoints, 
+        time_steps: forecastHours, 
+        model_name: modelName,
+        compute_initial_only: computeInitialOnly
+      }),
     });
 
     const data = await response.json();
-  // Return the full response so callers can access time_steps and other metadata
-  return data;
+    // Return the full response including simulation_id
+    return data;
   } catch (error) {
     console.error('Failed to generate forecast:', error);
     throw error;
@@ -233,4 +239,51 @@ export async function preparePointInput(row) {
   };
 
   return features;
+}
+
+/**
+ * Fetch predictions from database for a specific time step
+ * @param {string} simulationId - Simulation ID from initial forecast
+ * @param {number} timeStep - Time step to fetch (0-based)
+ * @returns {Promise<Array>} Array of predictions for that time step
+ */
+export async function getPredictionsForTimeStep(simulationId, timeStep) {
+  try {
+    const url = `${API_BASE_URL}/get-predictions/${simulationId}/${timeStep}`;
+    const response = await requestWithLogging(url, { method: 'GET' });
+    const data = await response.json();
+    return data.predictions || [];
+  } catch (error) {
+    console.error(`Failed to fetch predictions for time step ${timeStep}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Run the next time step incrementally (only predicts on t_burn=0 cells with burning neighbors)
+ * @param {string} simulationId - Simulation ID from initial forecast
+ * @param {number} currentTimeStep - Current time step
+ * @param {Object} template - Template object with environmental features
+ * @param {string} modelName - Model to use
+ * @returns {Promise<Object>} Response with predictions for next time step
+ */
+export async function runNextTimeStep(simulationId, currentTimeStep, template = {}, modelName = "random_forest") {
+  try {
+    const url = `${API_BASE_URL}/run-next-step`;
+    const response = await requestWithLogging(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        simulation_id: simulationId,
+        current_time_step: currentTimeStep,
+        template: template,
+        model_name: modelName
+      }),
+    });
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error(`Failed to run next time step from ${currentTimeStep}:`, error);
+    throw error;
+  }
 }

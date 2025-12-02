@@ -32,7 +32,7 @@ import FireInputsProcessor from "./components/FireInputsProcessor";
 import useTimeline from "./hooks/useTimeline";
 
 /* ---- Utils ---- */
-import { generateSpreadForecast, runPointPrediction } from "./utils/forecastApi";
+import { generateSpreadForecast, runPointPrediction, getPredictionsForTimeStep, runNextTimeStep } from "./utils/forecastApi";
 import { fetchRecentFireInputs } from "./api/fireInputsApi";
 import { selectAndPredictNeighborhood } from "./api/blockStateApi";
 import makeForecastHeatmap from "./utils/makeForecastHeatmap";
@@ -89,6 +89,11 @@ function App() {
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const prevLayersRef = useRef(null);
   const [statusMessage, setStatusMessage] = useState(null);
+  
+  // Database-backed simulation state
+  const [simulationId, setSimulationId] = useState(null);
+  const [maxComputedStep, setMaxComputedStep] = useState(-1);
+  const [forecastTemplate, setForecastTemplate] = useState(null);
 
   // Keep this stable so GlobeCanvas doesn't re-init
   const initialView = useMemo(
@@ -178,13 +183,15 @@ function App() {
       const resp = await generateSpreadForecast(
         cluster.points,
         forecastHours,
-        "random_forest"  // Use random_forest which has the bug fixes
+        "random_forest",  // Use random_forest which has the bug fixes
+        true  // compute_initial_only = true for incremental mode
       );
       const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
 
       console.log(`Backend response received in ${elapsedTime}s:`, resp);
       let predictions = resp.predictions || [];
       console.log("Number of predictions received:", predictions.length);
+      console.log("Initial step only - subsequent steps will be computed on demand");
       
       if (predictions.length === 0) {
         console.error("Backend returned 0 predictions! Check backend logs.");
@@ -317,6 +324,11 @@ function App() {
 
       console.log("Setting forecast predictions:", forecastData.length, "frames");
       console.log("Sample frame 0:", forecastData[0]);
+      
+      // Store simulation state - only step 0 computed initially
+      setSimulationId(resp.simulation_id);
+      setMaxComputedStep(0);  // Only step 0 computed
+      setForecastTemplate(cluster.points[0]); // Store first point as template for features
       
       setForecastPredictions(forecastData);
       setForecastFrame(0);
@@ -498,6 +510,59 @@ function App() {
       setStatusMessage(null);
     }
   };
+
+  // Handle slider changes for incremental prediction
+  useEffect(() => {
+    const computeNextStep = async () => {
+      if (!simulationId || !forecastPredictions) return;
+      
+      // If user moved slider forward beyond computed steps, trigger next computation
+      if (forecastFrame > maxComputedStep) {
+        console.log(`Computing next step: current=${maxComputedStep}, requested=${forecastFrame}`);
+        
+        try {
+          const resp = await runNextTimeStep(
+            simulationId,
+            maxComputedStep,
+            forecastTemplate,
+            "random_forest"
+          );
+          
+          console.log(`Computed step ${resp.time_step}:`, resp.count, "predictions");
+          
+          // Fetch predictions from database
+          const preds = await getPredictionsForTimeStep(simulationId, resp.time_step);
+          
+          // Update forecast data with new predictions
+          const pixel = makeForecastPixelGrid(preds.map(p => ({
+            time: resp.time_step,
+            lat: p.lat,
+            lon: p.lon,
+            spread_probability: p.spread_probability
+          })));
+          
+          const newFrame = {
+            hour: resp.time_step,
+            imageDataUrl: pixel.imageDataUrl,
+            bbox: pixel.bbox,
+            predictions: preds
+          };
+          
+          setForecastPredictions(prev => {
+            const updated = [...prev];
+            updated[resp.time_step] = newFrame;
+            return updated;
+          });
+          
+          setMaxComputedStep(resp.time_step);
+        } catch (error) {
+          console.error("Failed to compute next step:", error);
+        }
+      }
+    };
+    
+    computeNextStep();
+  }, [forecastFrame, simulationId, maxComputedStep, forecastTemplate]);
 
   // Animation playback control
   useEffect(() => {

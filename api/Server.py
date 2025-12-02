@@ -997,6 +997,7 @@ def predict_spread_animation():
     
     cluster = body.get("cluster") or []
     time_steps = int(body.get("time_steps", 24))
+    compute_initial_only = bool(body.get("compute_initial_only", False))
     model_name = (body.get("model_name") or body.get("model") or "random_forest").lower()
 
     if not isinstance(cluster, list) or len(cluster) == 0:
@@ -1010,12 +1011,21 @@ def predict_spread_animation():
     print(f"Simulation ID: {simulation_id}")
     print(f"Cluster size: {len(cluster)} points")
     print(f"Time steps: {time_steps}")
+    print(f"Compute initial only: {compute_initial_only}")
     print(f"Model: {model_name}")
 
     # Simulation limits
     MAX_CELLS = 5000
     MAX_TIME_STEPS = 168
     time_steps = min(time_steps, MAX_TIME_STEPS)
+    
+    # If compute_initial_only is True, only run step 0
+    if compute_initial_only:
+        time_steps_to_compute = 1
+        print("Computing only initial time step (0)")
+    else:
+        time_steps_to_compute = time_steps
+        print(f"Computing all {time_steps} time steps")
 
     # Helper to compute block center from row/col (same logic as snap_to_grid)
     origin_lat = 25.0
@@ -1105,8 +1115,8 @@ def predict_spread_animation():
         conn = None
         cur = None
 
-    # Simulation loop
-    for t in range(time_steps):
+    # Simulation loop - use time_steps_to_compute instead of time_steps
+    for t in range(time_steps_to_compute):
         step_start = time.time()
         
         if len(blocks) > MAX_CELLS:
