@@ -440,11 +440,19 @@ def predict():
             )
             # Ensure helpful indexes / constraints
             cur.execute("CREATE INDEX IF NOT EXISTS idx_fire_inputs_input_id ON fire_inputs(input_id)")
-            # Optional uniqueness on input_id if desired
-            try:
-                cur.execute("ALTER TABLE fire_inputs ADD CONSTRAINT fire_inputs_input_id_unique UNIQUE (input_id)")
-            except Exception:
-                pass
+            # Add unique constraint on input_id only if missing (avoids aborting the transaction)
+            cur.execute(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint WHERE conname = 'fire_inputs_input_id_unique'
+                    ) THEN
+                        ALTER TABLE fire_inputs ADD CONSTRAINT fire_inputs_input_id_unique UNIQUE (input_id);
+                    END IF;
+                END$$;
+                """
+            )
 
             # Ensure block_index table exists (used for per-block timeline state)
             cur.execute(
@@ -484,8 +492,9 @@ def predict():
                 """
             )
         except Exception:
-            # If table create fails, continue — we still attempt to write prediction and state
-            pass
+            # If any DDL fails, rollback to clear aborted state and continue
+            conn.rollback()
+            cur = conn.cursor()
 
         # Read existing block state if present
         cur.execute(
@@ -608,6 +617,8 @@ def predict():
         # Upsert original input/prediction (avoid duplicate rows if input_id already present)
         if input_id is not None:
             try:
+                # Isolate potential errors so they don't abort the whole transaction
+                cur.execute("SAVEPOINT sp_upsert_fire_inputs")
                 cur.execute(
                     """
                     INSERT INTO fire_inputs (
@@ -666,12 +677,16 @@ def predict():
                     ),
                 )
             except Exception:
-                # Non-fatal
-                pass
+                # Non-fatal: rollback to savepoint and continue
+                try:
+                    cur.execute("ROLLBACK TO SAVEPOINT sp_upsert_fire_inputs")
+                except Exception:
+                    pass
 
         # If this prediction came from a fire_inputs row, mark it processed
         if input_id is not None:
             try:
+                cur.execute("SAVEPOINT sp_mark_processed")
                 cur.execute(
                     """
                     UPDATE fire_inputs
@@ -698,7 +713,10 @@ def predict():
                     ),
                 )
             except Exception:
-                pass
+                try:
+                    cur.execute("ROLLBACK TO SAVEPOINT sp_mark_processed")
+                except Exception:
+                    pass
 
         conn.commit()
         cur.close()
