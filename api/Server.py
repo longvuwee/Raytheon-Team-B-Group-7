@@ -100,8 +100,8 @@ def snap_to_grid(lat: float, lon: float) -> Block:
 
 
 BASE_SPREAD_THRESHOLD = 0.75  # Starting threshold at hour 0
-THRESHOLD_DECAY_RATE = 0.40   # Reduces threshold by 40% by final hour (0.75 -> 0.45)
-NEIGHBOR_THRESHOLD_BONUS = 0.05  # -5% threshold per burning neighbor
+THRESHOLD_DECAY_RATE = 0.60   # Reduces threshold by 60% by final hour (0.75 -> 0.30), approximately 5% per step
+NEIGHBOR_THRESHOLD_BONUS = 0.05  # -2.5% threshold per burning neighbor (changed from -5%)
 MIN_THRESHOLD = 0.20  # Minimum threshold regardless of decay/neighbors
 EXPOSURE_IGNITION_THRESHOLD = 1.0  # Accumulated exposure needed for auto-ignition
 T_MAX = 12
