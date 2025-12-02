@@ -93,13 +93,25 @@ export default function ClusterPopup({
           <div className="stat">
             <span className="label">Point Time:</span>
             <span className="value">
-              {formatDateTime(cluster?.clickedPoint?.datetime || cluster?.points?.[0]?.datetime)}
+              {formatDateTime(cluster?.clickedPoint?.created_at || cluster?.clickedPoint?.acq_datetime || cluster?.clickedPoint?.datetime || cluster?.points?.[0]?.created_at)}
             </span>
           </div>
           <div className="stat">
             <span className="label">Time Period:</span>
             <span className="value">{cluster.dateRange}</span>
           </div>
+          {cluster?.clickedPoint?.brightness && (
+            <div className="stat">
+              <span className="label">Brightness:</span>
+              <span className="value">{cluster.clickedPoint.brightness.toFixed(1)}K</span>
+            </div>
+          )}
+          {cluster?.clickedPoint?.confidence !== undefined && (
+            <div className="stat">
+              <span className="label">Confidence:</span>
+              <span className="value">{cluster.clickedPoint.confidence}%</span>
+            </div>
+          )}
         </div>
         
         <div className="forecast-options">

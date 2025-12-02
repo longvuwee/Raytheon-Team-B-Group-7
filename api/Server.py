@@ -387,6 +387,37 @@ def db_check():
                 )
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS fire_predictions (
+                    simulation_id UUID NOT NULL,
+                    time_step INTEGER NOT NULL,
+                    block_id TEXT NOT NULL,
+                    latitude DOUBLE PRECISION,
+                    longitude DOUBLE PRECISION,
+                    spread_probability DOUBLE PRECISION,
+                    t INTEGER,
+                    t_burn INTEGER,
+                    exposure DOUBLE PRECISION,
+                    created_at TIMESTAMPTZ DEFAULT now(),
+                    PRIMARY KEY (simulation_id, time_step, block_id)
+                )
+                """
+            )
+            # Create indexes for fire_predictions
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_fire_predictions_sim_step 
+                ON fire_predictions(simulation_id, time_step)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_fire_predictions_burning 
+                ON fire_predictions(simulation_id, time_step, t_burn) 
+                WHERE t_burn = 1
+                """
+            )
         except Exception as e:
             conn.rollback()
             return jsonify({"ok": False, "stage": "create_tables", "error": str(e)}), 500
@@ -686,6 +717,38 @@ def predict():
                     updated_at TIMESTAMPTZ DEFAULT now(),
                     PRIMARY KEY (block_row, block_col)
                 )
+                """
+            )
+            
+            # Ensure fire_predictions table exists (for incremental computation)
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS fire_predictions (
+                    simulation_id UUID NOT NULL,
+                    time_step INTEGER NOT NULL,
+                    block_id TEXT NOT NULL,
+                    latitude DOUBLE PRECISION,
+                    longitude DOUBLE PRECISION,
+                    spread_probability DOUBLE PRECISION,
+                    t INTEGER,
+                    t_burn INTEGER,
+                    exposure DOUBLE PRECISION,
+                    created_at TIMESTAMPTZ DEFAULT now(),
+                    PRIMARY KEY (simulation_id, time_step, block_id)
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_fire_predictions_sim_step 
+                ON fire_predictions(simulation_id, time_step)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_fire_predictions_burning 
+                ON fire_predictions(simulation_id, time_step, t_burn) 
+                WHERE t_burn = 1
                 """
             )
         except Exception:
@@ -1104,6 +1167,36 @@ def predict_spread_animation():
                     updated_at TIMESTAMPTZ DEFAULT now(),
                     PRIMARY KEY (block_row, block_col)
                 )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS fire_predictions (
+                    simulation_id UUID NOT NULL,
+                    time_step INTEGER NOT NULL,
+                    block_id TEXT NOT NULL,
+                    latitude DOUBLE PRECISION,
+                    longitude DOUBLE PRECISION,
+                    spread_probability DOUBLE PRECISION,
+                    t INTEGER,
+                    t_burn INTEGER,
+                    exposure DOUBLE PRECISION,
+                    created_at TIMESTAMPTZ DEFAULT now(),
+                    PRIMARY KEY (simulation_id, time_step, block_id)
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_fire_predictions_sim_step 
+                ON fire_predictions(simulation_id, time_step)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_fire_predictions_burning 
+                ON fire_predictions(simulation_id, time_step, t_burn) 
+                WHERE t_burn = 1
                 """
             )
         except Exception:

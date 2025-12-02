@@ -61,8 +61,9 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
         const startISO = new Date(startDate).toISOString().replace('T', ' ').substring(0, 19);
         const endISO = new Date(endDate).toISOString().replace('T', ' ').substring(0, 19);
 
-        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fires?select=latitude,longitude,datetime&datetime=gte.${startISO}&datetime=lt.${endISO}`;
-        console.log("FiresLayer: Fetching from", url);
+        // Fetch from fire_inputs table - use created_at for date filtering
+        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fire_inputs?select=*&created_at=gte.${startISO}&created_at=lt.${endISO}&order=created_at.desc&limit=500`;
+        console.log("FiresLayer: Fetching from fire_inputs table", url);
         const res = await fetch(url, {
           headers: {
             apikey: SUPABASE_ANON_KEY,
