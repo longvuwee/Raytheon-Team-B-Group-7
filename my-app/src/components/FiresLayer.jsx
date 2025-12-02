@@ -164,6 +164,20 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
         globus.planet.renderer.events.off("lclick", layer._fireClickHandler);
         delete layer._fireClickHandler;
       }
+      // Remove the layer entirely from the globe so toggling hides it
+      try {
+        const l = globus.planet.getLayerByName("Fires");
+        if (l) {
+          // Remove all entities to avoid leaks
+          if (l.entities && Array.isArray(l.entities)) {
+            l.entities.slice().forEach(e => l.remove(e));
+          }
+          globus.planet.removeLayer(l);
+          console.log("FiresLayer: removed 'Fires' layer");
+        }
+      } catch (e) {
+        console.warn("FiresLayer: error removing layer", e);
+      }
     };
   }, [globus, startDate, endDate, onClusterClick]);
 
