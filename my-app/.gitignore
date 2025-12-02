@@ -26,3 +26,7 @@ dist-ssr
 
 # CSV files
 *.csv
+
+# Python virtual environments
+.venv/
+venv/
