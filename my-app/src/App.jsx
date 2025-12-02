@@ -24,6 +24,7 @@ import SearchBar from "./components/SearchBar";
 import ClusterPopup from "./components/ClusterPopup";
 import ForecastControls from "./components/ForecastControls";
 import FireSpreadLayer from "./components/FireSpreadLayer";
+import FireInputsProcessor from "./components/FireInputsProcessor";
 
 /* ---- Hooks ---- */
 import useTimeline from "./hooks/useTimeline";
@@ -548,6 +549,9 @@ function App() {
       >
         <button onClick={testBackend}>Test backend</button>
       </div>
+
+      {/* Batch fire_inputs processor */}
+      <FireInputsProcessor />
 
       {renderContent()}
     </div>

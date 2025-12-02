@@ -61,7 +61,7 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
         const startISO = new Date(startDate).toISOString().replace('T', ' ').substring(0, 19);
         const endISO = new Date(endDate).toISOString().replace('T', ' ').substring(0, 19);
 
-        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fires?select=latitude,longitude&datetime=gte.${startISO}&datetime=lt.${endISO}`;
+        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fires?select=latitude,longitude,datetime&datetime=gte.${startISO}&datetime=lt.${endISO}`;
         console.log("FiresLayer: Fetching from", url);
         const res = await fetch(url, {
           headers: {
@@ -122,6 +122,10 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
               lat: clickedEntity.properties.lat, 
               lon: clickedEntity.properties.lon 
             };
+            // Find the exact row for the clicked point (to access its datetime)
+            const clickedRow = pointsWithData.find(pt => 
+              Math.abs(pt.lat - clickedPoint.lat) < 1e-9 && Math.abs(pt.lon - clickedPoint.lon) < 1e-9
+            );
             const nearbyPoints = findNearbyPoints(clickedPoint, pointsWithData, 0.5);
             
             if (nearbyPoints.length > 0) {
@@ -137,7 +141,8 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
                 centerLat,
                 centerLon,
                 dateRange: `${startISO.split(' ')[0]} to ${endISO.split(' ')[0]}`,
-                avgConfidence: nearbyPoints.reduce((sum, pt) => sum + (pt.confidence || 0), 0) / nearbyPoints.length
+                avgConfidence: nearbyPoints.reduce((sum, pt) => sum + (pt.confidence || 0), 0) / nearbyPoints.length,
+                clickedPoint: clickedRow || clickedPoint,
               }, {
                 x: e.clientX || (rect.left + rect.width / 2),
                 y: e.clientY || (rect.top + rect.height / 2)

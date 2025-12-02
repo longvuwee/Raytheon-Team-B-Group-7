@@ -233,7 +233,56 @@ def predict():
                     block_id TEXT,
                     block_row INT,
                     block_col INT,
+                    processed BOOLEAN DEFAULT FALSE,
+                    processed_at TIMESTAMPTZ,
+                    last_status TEXT,
+                    last_response JSONB,
                     created_at TIMESTAMPTZ DEFAULT now()
+                )
+                """
+            )
+            # Ensure helpful indexes / constraints
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_fire_inputs_input_id ON fire_inputs(input_id)")
+            # Optional uniqueness on input_id if desired
+            try:
+                cur.execute("ALTER TABLE fire_inputs ADD CONSTRAINT fire_inputs_input_id_unique UNIQUE (input_id)")
+            except Exception:
+                pass
+
+            # Ensure block_index table exists (used for per-block timeline state)
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS block_index (
+                    block_id TEXT PRIMARY KEY,
+                    block_row INT,
+                    block_col INT,
+                    block_center_latitude DOUBLE PRECISION,
+                    block_center_longitude DOUBLE PRECISION,
+                    T INT,
+                    T_burn INT,
+                    block_avg_spread_probability DOUBLE PRECISION,
+                    updated_at TIMESTAMPTZ DEFAULT now()
+                )
+                """
+            )
+
+            # Ensure fire_cell_state table exists (upserted per prediction)
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS fire_cell_state (
+                    block_row INT,
+                    block_col INT,
+                    block_id TEXT,
+                    last_latitude DOUBLE PRECISION,
+                    last_longitude DOUBLE PRECISION,
+                    t INT,
+                    t_burn INT,
+                    last_prob DOUBLE PRECISION,
+                    prob_sum DOUBLE PRECISION,
+                    prob_count INT,
+                    instant_spread_probability DOUBLE PRECISION,
+                    updated_at TIMESTAMPTZ DEFAULT now(),
+                    PRIMARY KEY (block_row, block_col)
                 )
                 """
             )
@@ -359,73 +408,100 @@ def predict():
             ),
         )
 
-        # Record the original input and prediction to fire_inputs for traceability
-        try:
-            cur.execute(
-                """
-                INSERT INTO fire_inputs (
-                    input_id, model, latitude, longitude, brightness, bright_t31, confidence, daynight,
-                    elevation, slope, aspect, temp, humidity, wind_speed, precip, month,
-                    instant_spread_probability, prediction, t, t_burn, block_id, block_row, block_col
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                """,
-                (
-                    input_id,
-                    model_name,
-                    lat,
-                    lon,
-                    features.get("brightness"),
-                    features.get("bright_t31"),
-                    features.get("confidence"),
-                    int(features.get("daynight")),
-                    features.get("elevation"),
-                    features.get("slope"),
-                    features.get("aspect"),
-                    features.get("temp"),
-                    features.get("humidity"),
-                    features.get("wind_speed"),
-                    features.get("precip"),
-                    int(features.get("month")),
-                    inst_prob,
-                    "Spread" if inst_prob >= SPREAD_THRESHOLD else "No Spread",
-                    new_T,
-                    new_T_burn,
-                    block.block_id,
-                    block.row,
-                    block.col,
-                ),
-            )
-        except Exception:
-            # Non-fatal: if saving inputs fails, continue — we still commit the main state
-            pass
+        # Upsert original input/prediction (avoid duplicate rows if input_id already present)
+        if input_id is not None:
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO fire_inputs (
+                        input_id, model, latitude, longitude, brightness, bright_t31, confidence, daynight,
+                        elevation, slope, aspect, temp, humidity, wind_speed, precip, month,
+                        instant_spread_probability, prediction, t, t_burn, block_id, block_row, block_col
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (input_id) DO UPDATE SET
+                        model = EXCLUDED.model,
+                        latitude = EXCLUDED.latitude,
+                        longitude = EXCLUDED.longitude,
+                        brightness = EXCLUDED.brightness,
+                        bright_t31 = EXCLUDED.bright_t31,
+                        confidence = EXCLUDED.confidence,
+                        daynight = EXCLUDED.daynight,
+                        elevation = EXCLUDED.elevation,
+                        slope = EXCLUDED.slope,
+                        aspect = EXCLUDED.aspect,
+                        temp = EXCLUDED.temp,
+                        humidity = EXCLUDED.humidity,
+                        wind_speed = EXCLUDED.wind_speed,
+                        precip = EXCLUDED.precip,
+                        month = EXCLUDED.month,
+                        instant_spread_probability = EXCLUDED.instant_spread_probability,
+                        prediction = EXCLUDED.prediction,
+                        t = EXCLUDED.t,
+                        t_burn = EXCLUDED.t_burn,
+                        block_id = EXCLUDED.block_id,
+                        block_row = EXCLUDED.block_row,
+                        block_col = EXCLUDED.block_col
+                    """,
+                    (
+                        input_id,
+                        model_name,
+                        lat,
+                        lon,
+                        features.get("brightness"),
+                        features.get("bright_t31"),
+                        features.get("confidence"),
+                        int(features.get("daynight")),
+                        features.get("elevation"),
+                        features.get("slope"),
+                        features.get("aspect"),
+                        features.get("temp"),
+                        features.get("humidity"),
+                        features.get("wind_speed"),
+                        features.get("precip"),
+                        int(features.get("month")),
+                        inst_prob,
+                        "Spread" if inst_prob >= SPREAD_THRESHOLD else "No Spread",
+                        new_T,
+                        new_T_burn,
+                        block.block_id,
+                        block.row,
+                        block.col,
+                    ),
+                )
+            except Exception:
+                # Non-fatal
+                pass
 
         # If this prediction came from a fire_inputs row, mark it processed
         if input_id is not None:
-            cur.execute(
-                """
-                UPDATE fire_inputs
-                SET processed    = TRUE,
-                    processed_at = now(),
-                    last_status  = %s,
-                    last_response = %s
-                WHERE id = %s
-                """,
-                (
-                    "ok",
-                    Json({
-                        "model": model_name,
-                        "instant_spread_probability": inst_prob,
-                        "T": new_T,
-                        "T_burn": new_T_burn,
-                        "block_id": block.block_id,
-                        "block_row": block.row,
-                        "block_col": block.col,
-                        "block_center_latitude": block.center_lat,
-                        "block_center_longitude": block.center_lon,
-                    }),
-                    input_id,
-                ),
-            )
+            try:
+                cur.execute(
+                    """
+                    UPDATE fire_inputs
+                    SET processed    = TRUE,
+                        processed_at = now(),
+                        last_status  = %s,
+                        last_response = %s
+                    WHERE input_id = %s
+                    """,
+                    (
+                        "ok",
+                        Json({
+                            "model": model_name,
+                            "instant_spread_probability": inst_prob,
+                            "T": new_T,
+                            "T_burn": new_T_burn,
+                            "block_id": block.block_id,
+                            "block_row": block.row,
+                            "block_col": block.col,
+                            "block_center_latitude": block.center_lat,
+                            "block_center_longitude": block.center_lon,
+                        }),
+                        input_id,
+                    ),
+                )
+            except Exception:
+                pass
 
         conn.commit()
         cur.close()
