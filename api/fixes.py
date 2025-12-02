@@ -13,6 +13,7 @@
 # 2. Add logging to show predictions before DB write
 # 3. Increase jitter ranges significantly (temporary fix)
 # 4. Add lookup function for environmental data (to be enhanced with real data)
+# 5. Add feature caching to speed up computation for nearby cells
 
 import math
 import random
@@ -21,6 +22,42 @@ from typing import Dict, Any, Tuple
 import json
 from flask import request, jsonify
 import psycopg2
+from functools import lru_cache
+
+# ==============================================================================
+# FEATURE CACHING
+# ==============================================================================
+
+# Cache environmental features by rounded lat/lon (0.01 degree precision = ~1km)
+# This dramatically speeds up computation when many cells are in same area
+@lru_cache(maxsize=10000)
+def get_cached_environmental_features(lat_rounded: float, lon_rounded: float, template_hash: int) -> tuple:
+    """
+    Cached version of environmental feature computation.
+    Returns tuple of values that can be unpacked into feature dict.
+    """
+    # Round to 0.01 degree (approx 1km) for cache key
+    lat = lat_rounded
+    lon = lon_rounded
+    
+    # Lat/lon factors for feature variation
+    lat_factor = (lat - 32.0) / 10.0
+    lon_factor = (lon + 120.0) / 10.0
+    
+    # Use hash for deterministic but varied random values
+    seed = hash(f"{lat_rounded}-{lon_rounded}-{template_hash}") % (2**32)
+    r = random.Random(seed)
+    
+    # Compute features (same logic as get_environmental_features_for_location)
+    elevation = max(0, 500 + lon_factor * 500 + r.uniform(-300, 300))
+    slope = max(0, min(45, 10 + (elevation / 100) + r.uniform(-5, 5)))
+    aspect = (hash(f"{int(lat*100)}-{int(lon*100)}") % 360)
+    temp = 25 - lat_factor * 3 + r.uniform(-5, 5)
+    humidity = max(0, min(100, 40 + lat_factor * 10 + r.uniform(-15, 15)))
+    wind_speed = max(0, 10 + r.uniform(-5, 5))
+    precip = max(0, 0 + r.uniform(-1, 2))
+    
+    return (elevation, slope, aspect, temp, humidity, wind_speed, precip)
 
 # ==============================================================================
 # DEBUGGING UTILITIES
@@ -44,47 +81,39 @@ def log_prediction_debug(block_id: str, features: Dict[str, Any], probability: f
 def get_environmental_features_for_location(lat: float, lon: float, template: Dict[str, Any]) -> Dict[str, Any]:
     """
     Enhanced feature lookup that varies by location.
+    Uses caching for performance - cells within ~1km share environmental features.
     
     TODO: Replace with actual data sources:
     - Load elevation/slope/aspect from GIS raster files
     - Query weather APIs for real-time temp/humidity/wind
     - Use historical fire perimeter data for confidence adjustment
     
-    For now, uses lat/lon-based heuristics + larger jitter to ensure variation.
+    For now, uses lat/lon-based heuristics + caching for speed.
     """
-    # Base values from template
-    features = {}
+    # Round to 0.01 degree precision for caching (approx 1km resolution)
+    lat_rounded = round(lat, 2)
+    lon_rounded = round(lon, 2)
     
-    # Topographic features: vary by latitude/longitude
-    # (In production, lookup from DEM/slope/aspect rasters)
-    lat_factor = (lat - 32.0) / 10.0  # Normalize around central CA
-    lon_factor = (lon + 120.0) / 10.0
+    # Create hash of template for cache key (only brightness/confidence vary per cell)
+    template_hash = hash(f"{template.get('temp', 25)}-{template.get('humidity', 40)}-{template.get('wind_speed', 10)}")
     
-    # Elevation: higher in eastern CA (Sierra Nevada)
-    base_elevation = template.get('elevation', 500.0)
-    features['elevation'] = max(0, base_elevation + lon_factor * 500 + random.uniform(-300, 300))
+    # Get cached environmental features
+    elevation, slope, aspect, temp, humidity, wind_speed, precip = get_cached_environmental_features(
+        lat_rounded, lon_rounded, template_hash
+    )
     
-    # Slope: varies with elevation
-    base_slope = template.get('slope', 10.0)
-    features['slope'] = max(0, min(45, base_slope + (features['elevation'] / 100) + random.uniform(-5, 5)))
+    # Build feature dict
+    features = {
+        'elevation': elevation,
+        'slope': slope,
+        'aspect': aspect,
+        'temp': temp,
+        'humidity': humidity,
+        'wind_speed': wind_speed,
+        'precip': precip,
+    }
     
-    # Aspect: random but clustered by region
-    features['aspect'] = (hash(f"{int(lat*100)}-{int(lon*100)}") % 360)
-    
-    # Weather features: vary by latitude and time
-    base_temp = template.get('temp', 25.0)
-    features['temp'] = base_temp - lat_factor * 3 + random.uniform(-5, 5)
-    
-    base_humidity = template.get('humidity', 40.0)
-    features['humidity'] = max(0, min(100, base_humidity + lat_factor * 10 + random.uniform(-15, 15)))
-    
-    base_wind = template.get('wind_speed', 10.0)
-    features['wind_speed'] = max(0, base_wind + random.uniform(-5, 5))
-    
-    base_precip = template.get('precip', 0.0)
-    features['precip'] = max(0, base_precip + random.uniform(-1, 2))
-    
-    # Fire-specific features: carry from template but add location-based noise
+    # Fire-specific features: carry from template with small per-cell variation
     features['brightness'] = template.get('brightness', 300.0) + random.uniform(-20, 20)
     features['bright_t31'] = template.get('bright_t31', 280.0) + random.uniform(-15, 15)
     features['confidence'] = max(0, min(100, template.get('confidence', 80.0) + random.uniform(-10, 10)))

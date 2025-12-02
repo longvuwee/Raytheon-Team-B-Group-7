@@ -1209,6 +1209,7 @@ def predict_spread_animation():
         cur = None
 
     # Simulation loop - use time_steps_to_compute instead of time_steps
+    print(f"Starting simulation: {time_steps_to_compute} steps, {len(blocks)} initial blocks")
     for t in range(time_steps_to_compute):
         step_start = time.time()
         
@@ -1240,7 +1241,15 @@ def predict_spread_animation():
                             }
 
         # Build features for each candidate and predict
-        for nb_id, meta in candidates.items():
+        candidates_count = len(candidates)
+        if t == 0:
+            print(f"Step {t}: Processing {candidates_count} candidate cells...")
+        
+        for idx, (nb_id, meta) in enumerate(candidates.items()):
+            # Progress logging for step 0
+            if t == 0 and idx > 0 and idx % 50 == 0:
+                print(f"  Processed {idx}/{candidates_count} candidates ({(idx/candidates_count*100):.1f}%)")
+            
             if nb_id in blocks:
                 old_T = blocks[nb_id]["T"]
                 old_T_burn = blocks[nb_id]["T_burn"]

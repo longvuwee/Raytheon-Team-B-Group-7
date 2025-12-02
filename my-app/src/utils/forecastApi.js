@@ -10,9 +10,9 @@ async function requestWithLogging(url, options = {}) {
   try {
     console.log('[api] fetch ->', (options.method || 'GET').toUpperCase(), url);
     
-    // Add 60 second timeout for long-running predictions
+    // Add 180 second timeout for long-running predictions (increased for large clusters)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    const timeoutId = setTimeout(() => controller.abort(), 180000);
     
     const res = await fetch(url, {
       ...options,
@@ -31,8 +31,8 @@ async function requestWithLogging(url, options = {}) {
     return res;
   } catch (err) {
     if (err.name === 'AbortError') {
-      console.error('[api] Request timeout after 60 seconds:', url);
-      throw new Error('Request timed out after 60 seconds');
+      console.error('[api] Request timeout after 180 seconds:', url);
+      throw new Error('Request timed out after 180 seconds');
     }
     console.error('[api] network/error fetching', url, err);
     throw err;
