@@ -950,12 +950,20 @@ def predict_spread_animation():
     except Exception as e:
         return jsonify({"error": f"Invalid JSON body: {e}"}), 400
 
+    import time
+    start_time = time.time()
+    
     cluster = body.get("cluster") or []
     time_steps = int(body.get("time_steps", 24))
     model_name = (body.get("model_name") or body.get("model") or "random_forest").lower()
 
     if not isinstance(cluster, list) or len(cluster) == 0:
         return jsonify({"error": "cluster must be a non-empty array of points"}), 400
+    
+    print(f"\n=== PREDICT-SPREAD-ANIMATION START ===")
+    print(f"Cluster size: {len(cluster)} points")
+    print(f"Time steps: {time_steps}")
+    print(f"Model: {model_name}")
 
     # Simulation limits
     MAX_CELLS = 5000
@@ -1052,7 +1060,10 @@ def predict_spread_animation():
 
     # Simulation loop
     for t in range(time_steps):
+        step_start = time.time()
+        
         if len(blocks) > MAX_CELLS:
+            print(f"⚠️  Hit MAX_CELLS limit ({MAX_CELLS}) at time step {t}")
             break
 
         # Gather candidates: neighbors of currently burning cells + the burning cells themselves
@@ -1137,6 +1148,11 @@ def predict_spread_animation():
                 "spread_probability": prob,
                 "block_id": nb_id,
             })
+        
+        # Log progress every 5 steps
+        step_elapsed = time.time() - step_start
+        if t % 5 == 0 or t == time_steps - 1:
+            print(f"  Step {t}/{time_steps}: {len(candidates)} candidates, {len(blocks)} total blocks, {step_elapsed:.2f}s")
 
             # Persist per-cell state if DB available
             if cur is not None:
@@ -1248,6 +1264,9 @@ def predict_spread_animation():
             except Exception:
                 pass
 
+    total_time = time.time() - start_time
+    print(f"=== PREDICTION COMPLETE: {len(predictions_out)} predictions in {total_time:.2f}s ===\n")
+    
     return jsonify({"predictions": predictions_out, "time_steps": time_steps})
 
 

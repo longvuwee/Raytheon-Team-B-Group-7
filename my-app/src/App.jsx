@@ -459,7 +459,7 @@ function App() {
       console.log("Cluster created with", cluster.points.length, "points");
       console.log("Calling handleRunForecast...");
       
-      await handleRunForecast(cluster, 24);
+      await handleRunForecast(cluster, 12);  // Reduced from 24 to 12 hours for faster testing on Render
       
       console.log("handleRunForecast completed");
       setStatusMessage(null);
