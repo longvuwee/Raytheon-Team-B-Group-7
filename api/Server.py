@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Tuple, Dict, Any
 
 import psycopg2
+from psycopg2.extras import Json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
@@ -313,7 +314,7 @@ def predict():
                 ),
             )
 
-                # Write per-block state (upsert on block_row, block_col)
+        # Write per-block state (upsert on block_row, block_col)
         cur.execute(
             """
             INSERT INTO fire_cell_state (
@@ -398,6 +399,33 @@ def predict():
             # Non-fatal: if saving inputs fails, continue — we still commit the main state
             pass
 
+        # If this prediction came from a fire_inputs row, mark it processed
+        if input_id is not None:
+            cur.execute(
+                """
+                UPDATE fire_inputs
+                SET processed    = TRUE,
+                    processed_at = now(),
+                    last_status  = %s,
+                    last_response = %s
+                WHERE id = %s
+                """,
+                (
+                    "ok",
+                    Json({
+                        "model": model_name,
+                        "instant_spread_probability": inst_prob,
+                        "T": new_T,
+                        "T_burn": new_T_burn,
+                        "block_id": block.block_id,
+                        "block_row": block.row,
+                        "block_col": block.col,
+                        "block_center_latitude": block.center_lat,
+                        "block_center_longitude": block.center_lon,
+                    }),
+                    input_id,
+                ),
+            )
 
         conn.commit()
         cur.close()
