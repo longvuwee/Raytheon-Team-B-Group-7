@@ -253,6 +253,91 @@ def db_check():
         return jsonify({"ok": False, "stage": "connect", "error": str(e)}), 500
 
 
+@app.route("/db-check-fire-inputs", methods=["GET"])
+def db_check_fire_inputs():
+    """
+    Check fire_inputs upsert path specifically to surface schema mismatches.
+    """
+    sample = {
+        "input_id": "DBCHECK-FI-1",
+        "model": "random_forest",
+        "latitude": 35.25,
+        "longitude": -120.60,
+        "brightness": 310.2,
+        "bright_t31": 290.1,
+        "confidence": 8,
+        "daynight": 0,
+        "elevation": 450.0,
+        "slope": 5.2,
+        "aspect": 180.0,
+        "temp": 27.0,
+        "humidity": 32.0,
+        "wind_speed": 4.5,
+        "precip": 0.0,
+        "month": 7,
+        "instant_spread_probability": 0.5,
+        "prediction": "No Spread",
+        "t": 0,
+        "t_burn": 0,
+        "block_id": "CA-0-0",
+        "block_row": 0,
+        "block_col": 0,
+    }
+    try:
+        conn = get_db_conn()
+        conn.autocommit = False
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """
+                INSERT INTO fire_inputs (
+                    input_id, model, latitude, longitude, brightness, bright_t31, confidence, daynight,
+                    elevation, slope, aspect, temp, humidity, wind_speed, precip, month,
+                    instant_spread_probability, prediction, t, t_burn, block_id, block_row, block_col
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (input_id) DO UPDATE SET
+                    model = EXCLUDED.model,
+                    latitude = EXCLUDED.latitude,
+                    longitude = EXCLUDED.longitude,
+                    brightness = EXCLUDED.brightness,
+                    bright_t31 = EXCLUDED.bright_t31,
+                    confidence = EXCLUDED.confidence,
+                    daynight = EXCLUDED.daynight,
+                    elevation = EXCLUDED.elevation,
+                    slope = EXCLUDED.slope,
+                    aspect = EXCLUDED.aspect,
+                    temp = EXCLUDED.temp,
+                    humidity = EXCLUDED.humidity,
+                    wind_speed = EXCLUDED.wind_speed,
+                    precip = EXCLUDED.precip,
+                    month = EXCLUDED.month,
+                    instant_spread_probability = EXCLUDED.instant_spread_probability,
+                    prediction = EXCLUDED.prediction,
+                    t = EXCLUDED.t,
+                    t_burn = EXCLUDED.t_burn,
+                    block_id = EXCLUDED.block_id,
+                    block_row = EXCLUDED.block_row,
+                    block_col = EXCLUDED.block_col
+                """,
+                (
+                    sample["input_id"], sample["model"], sample["latitude"], sample["longitude"],
+                    sample["brightness"], sample["bright_t31"], sample["confidence"], int(sample["daynight"]),
+                    sample["elevation"], sample["slope"], sample["aspect"], sample["temp"], sample["humidity"],
+                    sample["wind_speed"], sample["precip"], int(sample["month"]), sample["instant_spread_probability"],
+                    sample["prediction"], sample["t"], sample["t_burn"], sample["block_id"], sample["block_row"], sample["block_col"],
+                ),
+            )
+        except Exception as e:
+            conn.rollback()
+            return jsonify({"ok": False, "stage": "upsert_fire_inputs", "error": str(e)}), 500
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"ok": True, "message": "fire_inputs upsert succeeded"})
+    except Exception as e:
+        return jsonify({"ok": False, "stage": "connect", "error": str(e)}), 500
+
+
 @app.route("/predict", methods=["POST"])
 def predict():
     # ---- Parse JSON body ----
