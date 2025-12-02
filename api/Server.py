@@ -141,6 +141,118 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.route("/db-check", methods=["GET"])
+def db_check():
+    """
+    Connectivity and schema sanity check:
+    - Attempts a simple upsert into block_index
+    - Attempts an upsert into fire_cell_state
+    Returns first error encountered with details
+    """
+    try:
+        conn = get_db_conn()
+        conn.autocommit = False
+        cur = conn.cursor()
+
+        # Create tables if missing (idempotent)
+        try:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS block_index (
+                    block_id TEXT PRIMARY KEY,
+                    block_row INT,
+                    block_col INT,
+                    block_center_latitude DOUBLE PRECISION,
+                    block_center_longitude DOUBLE PRECISION,
+                    T INT,
+                    T_burn INT,
+                    block_avg_spread_probability DOUBLE PRECISION,
+                    updated_at TIMESTAMPTZ DEFAULT now()
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS fire_cell_state (
+                    block_row INT,
+                    block_col INT,
+                    block_id TEXT,
+                    last_latitude DOUBLE PRECISION,
+                    last_longitude DOUBLE PRECISION,
+                    t INT,
+                    t_burn INT,
+                    last_prob DOUBLE PRECISION,
+                    prob_sum DOUBLE PRECISION,
+                    prob_count INT,
+                    instant_spread_probability DOUBLE PRECISION,
+                    updated_at TIMESTAMPTZ DEFAULT now(),
+                    PRIMARY KEY (block_row, block_col)
+                )
+                """
+            )
+        except Exception as e:
+            conn.rollback()
+            return jsonify({"ok": False, "stage": "create_tables", "error": str(e)}), 500
+
+        # Test upsert block_index
+        try:
+            cur.execute(
+                """
+                INSERT INTO block_index (
+                    block_id, block_row, block_col, block_center_latitude,
+                    block_center_longitude, T, T_burn, block_avg_spread_probability
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (block_id) DO UPDATE SET
+                    block_row = EXCLUDED.block_row,
+                    block_col = EXCLUDED.block_col,
+                    block_center_latitude = EXCLUDED.block_center_latitude,
+                    block_center_longitude = EXCLUDED.block_center_longitude,
+                    T = EXCLUDED.T,
+                    T_burn = EXCLUDED.T_burn,
+                    block_avg_spread_probability = EXCLUDED.block_avg_spread_probability,
+                    updated_at = now()
+                """,
+                ("DBCHECK-0-0", 0, 0, 0.0, 0.0, 0, 0, 0.0),
+            )
+        except Exception as e:
+            conn.rollback()
+            return jsonify({"ok": False, "stage": "upsert_block_index", "error": str(e)}), 500
+
+        # Test upsert fire_cell_state
+        try:
+            cur.execute(
+                """
+                INSERT INTO fire_cell_state (
+                    block_row, block_col, block_id, last_latitude, last_longitude,
+                    t, t_burn, last_prob, prob_sum, prob_count, instant_spread_probability
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (block_row, block_col)
+                DO UPDATE SET
+                    block_id = EXCLUDED.block_id,
+                    last_latitude = EXCLUDED.last_latitude,
+                    last_longitude = EXCLUDED.last_longitude,
+                    t = EXCLUDED.t,
+                    t_burn = EXCLUDED.t_burn,
+                    last_prob = EXCLUDED.last_prob,
+                    prob_sum = fire_cell_state.prob_sum + EXCLUDED.last_prob,
+                    prob_count = fire_cell_state.prob_count + 1,
+                    instant_spread_probability = EXCLUDED.instant_spread_probability,
+                    updated_at = now()
+                """,
+                (0, 0, "DBCHECK-0-0", 0.0, 0.0, 0, 0, 0.0, 0.0, 1, 0.0),
+            )
+        except Exception as e:
+            conn.rollback()
+            return jsonify({"ok": False, "stage": "upsert_fire_cell_state", "error": str(e)}), 500
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"ok": True, "message": "DB writes succeeded"})
+    except Exception as e:
+        return jsonify({"ok": False, "stage": "connect", "error": str(e)}), 500
+
+
 @app.route("/predict", methods=["POST"])
 def predict():
     # ---- Parse JSON body ----
