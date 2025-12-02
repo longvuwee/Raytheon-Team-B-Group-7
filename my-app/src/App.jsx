@@ -94,6 +94,8 @@ function App() {
   const [simulationId, setSimulationId] = useState(null);
   const [maxComputedStep, setMaxComputedStep] = useState(-1);
   const [forecastTemplate, setForecastTemplate] = useState(null);
+  const [isComputingStep, setIsComputingStep] = useState(false);
+  const [isLoadingForecast, setIsLoadingForecast] = useState(false);
 
   // Keep this stable so GlobeCanvas doesn't re-init
   const initialView = useMemo(
@@ -335,35 +337,34 @@ function App() {
       // Start paused so user can inspect frame 0
       setIsPlaying(false);
       
-      // Fly camera to the prediction area
+      // Position camera to the prediction area
       if (forecastData.length > 0 && forecastData[0].bbox && globeRef.current) {
-        const globus = globeRef.current.getGlobus();
-        if (globus && globus.planet) {
-          const [minLon, minLat, maxLon, maxLat] = forecastData[0].bbox;
-          const centerLat = (minLat + maxLat) / 2;
-          const centerLon = (minLon + maxLon) / 2;
-          const altitude = 500000; // 500km altitude for good view
-          
-          console.log(`Flying camera to prediction area: lat=${centerLat.toFixed(4)}, lon=${centerLon.toFixed(4)}`);
-          
-          globus.planet.camera.flyLonLat(
-            new LonLat(centerLon, centerLat),
-            null,
-            null,
-            altitude,
-            null,
-            null,
-            2000 // 2 second flight duration
-          );
-        } else {
-          console.warn("Globe or planet not ready for camera flight");
+        try {
+          const globus = globeRef.current.getGlobus();
+          if (globus && globus.planet && globus.planet.camera) {
+            const [minLon, minLat, maxLon, maxLat] = forecastData[0].bbox;
+            const centerLat = (minLat + maxLat) / 2;
+            const centerLon = (minLon + maxLon) / 2;
+            const altitude = 1500; // 1.5km altitude for very close, street-level view
+            
+            console.log(`Positioning camera to prediction area: lat=${centerLat.toFixed(4)}, lon=${centerLon.toFixed(4)}, altitude=${altitude}m`);
+            
+            // Direct positioning instead of flying to avoid errors
+            globus.planet.camera.setLonLat(new LonLat(centerLon, centerLat, altitude));
+          } else {
+            console.warn("Globe or planet not ready for camera positioning");
+          }
+        } catch (cameraError) {
+          console.warn("Camera positioning failed (non-critical):", cameraError.message);
         }
       }
       
       console.log("Forecast setup complete. Predictions should now be visible on globe.");
+      setIsLoadingForecast(false);
     } catch (error) {
       console.error("Forecast generation failed:", error);
       window.alert("Failed to generate forecast. Please try again.");
+      setIsLoadingForecast(false);
     }
   };
 
@@ -511,15 +512,19 @@ function App() {
     }
   };
 
-  // Handle slider changes for incremental prediction
+  // Auto-compute next steps sequentially (not triggered by slider)
   useEffect(() => {
     const computeNextStep = async () => {
       if (!simulationId || !forecastPredictions) return;
       
-      // If user moved slider forward beyond computed steps, trigger next computation
-      if (forecastFrame > maxComputedStep) {
-        console.log(`Computing next step: current=${maxComputedStep}, requested=${forecastFrame}`);
+      // Only compute the immediate next step (prevents firing all at once)
+      const nextStep = maxComputedStep + 1;
+      
+      // Auto-compute next step if not at the end and not already computing
+      if (nextStep < forecastPredictions.length && !isComputingStep) {
+        console.log(`Computing next step: current=${maxComputedStep}, requested=${forecastFrame}, computing=${nextStep}`);
         
+        setIsComputingStep(true);
         try {
           const resp = await runNextTimeStep(
             simulationId,
@@ -538,7 +543,9 @@ function App() {
             time: resp.time_step,
             lat: p.lat,
             lon: p.lon,
-            spread_probability: p.spread_probability
+            spread_probability: p.spread_probability,
+            t: p.t,
+            t_burn: p.t_burn
           })));
           
           const newFrame = {
@@ -549,20 +556,35 @@ function App() {
           };
           
           setForecastPredictions(prev => {
+            // Handle case where prev might be null or not an array
+            if (!prev || !Array.isArray(prev)) {
+              console.warn('forecastPredictions is not an array, skipping update');
+              return prev;
+            }
             const updated = [...prev];
             updated[resp.time_step] = newFrame;
             return updated;
           });
           
+          // Update maxComputedStep which will trigger this effect again if needed
           setMaxComputedStep(resp.time_step);
+          
+          // Auto-advance slider ONLY if play is active
+          if (isPlaying && resp.time_step < forecastPredictions.length - 1) {
+            setTimeout(() => {
+              setForecastFrame(resp.time_step);
+            }, 100); // Small delay to ensure display updates
+          }
         } catch (error) {
           console.error("Failed to compute next step:", error);
+        } finally {
+          setIsComputingStep(false);
         }
       }
     };
     
     computeNextStep();
-  }, [forecastFrame, simulationId, maxComputedStep, forecastTemplate]);
+  }, [simulationId, maxComputedStep, forecastTemplate, forecastPredictions, isComputingStep]);
 
   // Animation playback control
   useEffect(() => {
@@ -573,9 +595,16 @@ function App() {
     const interval = setInterval(() => {
       setForecastFrame((frame) => {
         const nextFrame = frame + 1;
+        
+        // Only advance if next frame is computed or pause if not ready yet
+        if (nextFrame > maxComputedStep) {
+          // Wait for computation to catch up, don't advance yet
+          return frame;
+        }
+        
         if (nextFrame >= forecastPredictions.length) {
-          // End of animation - stop and restore layers
-          handleForecastStop();
+          // End of animation - just pause, don't close
+          setIsPlaying(false);
           return frame; // stay at last valid frame
         }
         return nextFrame;
@@ -598,8 +627,14 @@ function App() {
   };
 
   const handleForecastSeek = (frame) => {
-    setForecastFrame(frame);
-    setIsPlaying(false);
+    // Allow free slider control if all steps are computed
+    // Otherwise only allow seeking to computed frames
+    const allStepsComputed = maxComputedStep >= forecastPredictions.length - 1;
+    
+    if (allStepsComputed || frame <= maxComputedStep) {
+      setForecastFrame(frame);
+      setIsPlaying(false);
+    }
   };
 
   const handleForecastStop = () => {
@@ -745,6 +780,8 @@ function App() {
                 onStop={handleForecastStop}
                 onSpeedChange={setPlaybackSpeed}
                 speed={playbackSpeed}
+                isComputing={isComputingStep}
+                allStepsComputed={maxComputedStep >= (forecastPredictions.length - 1)}
               />
             )}
 

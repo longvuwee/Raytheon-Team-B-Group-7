@@ -6,7 +6,9 @@ export default function ForecastControls({
   onSeek,
   onStop,
   onSpeedChange,
-  speed = 1
+  speed = 1,
+  isComputing = false,
+  allStepsComputed = false
 }) {
   return (
     <div className="forecast-controls">
@@ -40,6 +42,14 @@ export default function ForecastControls({
             value={currentHour}
             onChange={(e) => onSeek(Number(e.target.value))}
             className="forecast-slider"
+            disabled={isComputing || !allStepsComputed}
+            title={
+              isComputing 
+                ? "Computing next step..." 
+                : !allStepsComputed 
+                  ? "Wait for all steps to compute..." 
+                  : "Drag to change time (0-11h)"
+            }
           />
           <div className="slider-markers">
             <span>0h</span>
