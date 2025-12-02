@@ -9,7 +9,18 @@ const API_BASE_URL = String(RAW_API_URL).replace(/\/+$/, '');
 async function requestWithLogging(url, options = {}) {
   try {
     console.log('[api] fetch ->', (options.method || 'GET').toUpperCase(), url);
-    const res = await fetch(url, options);
+    
+    // Add 60 second timeout for long-running predictions
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
     if (!res.ok) {
       // attempt to read response body for diagnostics
       const text = await res.text().catch(() => '<no body>');
@@ -19,6 +30,10 @@ async function requestWithLogging(url, options = {}) {
     }
     return res;
   } catch (err) {
+    if (err.name === 'AbortError') {
+      console.error('[api] Request timeout after 60 seconds:', url);
+      throw new Error('Request timed out after 60 seconds');
+    }
     console.error('[api] network/error fetching', url, err);
     throw err;
   }

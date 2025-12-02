@@ -164,19 +164,32 @@ function App() {
   const handleRunForecast = async (cluster, forecastHours) => {
     try {
       console.log("Running forecast for cluster:", cluster);
+      console.log("Forecast hours:", forecastHours);
 
       // Close popup
       setSelectedCluster(null);
       setPopupPosition(null);
 
-      // Generate predictions from backend (neural network model)
+      // Generate predictions from backend (using random_forest model which is fixed)
+      console.log("Calling backend API...");
+      const startTime = Date.now();
       const resp = await generateSpreadForecast(
         cluster.points,
         forecastHours,
-        "neural_network"
+        "random_forest"  // Use random_forest which has the bug fixes
       );
+      const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
 
+      console.log(`Backend response received in ${elapsedTime}s:`, resp);
       let predictions = resp.predictions || [];
+      console.log("Number of predictions received:", predictions.length);
+      
+      if (predictions.length === 0) {
+        console.error("Backend returned 0 predictions! Check backend logs.");
+        alert("Failed to generate forecast. Please try again.");
+        setIsLoadingForecast(false);
+        return;
+      }
 
       // Inject a contiguous N×N rasterized "seed" around the click location
       try {
@@ -248,9 +261,13 @@ function App() {
       };
 
       // Build forecastData frames for 0..timeSteps-1
+      console.log("Building forecast frames for", timeSteps, "time steps");
+      console.log("Predictions by hour:", Object.keys(predictionsByHour).length, "hours with data");
+      
       const forecastData = [];
       for (let h = 0; h < timeSteps; h++) {
         const preds = predictionsByHour[h] || [];
+        console.log(`Hour ${h}: ${preds.length} predictions`);
         let imageDataUrl = null;
         let bbox = null;
 
@@ -296,10 +313,15 @@ function App() {
         "MODIS Hotspots": false,
       }));
 
+      console.log("Setting forecast predictions:", forecastData.length, "frames");
+      console.log("Sample frame 0:", forecastData[0]);
+      
       setForecastPredictions(forecastData);
       setForecastFrame(0);
       // Start paused so user can inspect frame 0
       setIsPlaying(false);
+      
+      console.log("Forecast setup complete. Predictions should now be visible on globe.");
     } catch (error) {
       console.error("Forecast generation failed:", error);
       window.alert("Failed to generate forecast. Please try again.");
@@ -388,10 +410,14 @@ function App() {
   // One-click demo: center camera on recent fire_inputs and run neighbor predictions
   const runDemo = async () => {
     try {
+      console.log("=== RUN DEMO STARTED ===");
       setStatusMessage("Running demo: fetching seeds...");
       const rows = await fetchRecentFireInputs(50);
+      console.log("Fetched fire_inputs rows:", rows?.length);
+      
       if (!rows || rows.length === 0) {
         alert("No fire_inputs rows available for demo");
+        console.error("No data in fire_inputs table");
         return;
       }
       // Compute centroid of recent rows
@@ -429,10 +455,16 @@ function App() {
         month: r.month,
       }));
       const cluster = { points, clickedPoint: { latitude: lat, longitude: lon } };
-
+      
+      console.log("Cluster created with", cluster.points.length, "points");
+      console.log("Calling handleRunForecast...");
+      
       await handleRunForecast(cluster, 24);
+      
+      console.log("handleRunForecast completed");
       setStatusMessage(null);
       setIsPlaying(true);
+      console.log("=== RUN DEMO COMPLETED ===");
     } catch (e) {
       console.error("Run Demo failed:", e);
       alert("Run Demo failed: " + (e?.message || e));

@@ -5,6 +5,7 @@ from typing import Dict, Any
 
 import joblib
 import numpy as np
+import pandas as pd
 
 # --------------------------------------------------
 # Model paths
@@ -31,9 +32,10 @@ lr           = joblib.load(LR_MODEL_PATH)
 # --------------------------------------------------
 # Helper: build feature vector in the correct order
 # --------------------------------------------------
-def _build_feature_vector(features: Dict[str, Any]) -> np.ndarray:
+def _build_feature_vector(features: Dict[str, Any]) -> pd.DataFrame:
     """
-    Build a 1×N vector with columns in the same order as `feature_cols`.
+    Build a 1×N DataFrame with columns in the same order as `feature_cols`.
+    Returns a DataFrame to preserve feature names and avoid sklearn warnings.
     """
     vals = []
     for name in feature_cols:
@@ -41,8 +43,8 @@ def _build_feature_vector(features: Dict[str, Any]) -> np.ndarray:
             raise KeyError(f"Missing feature: {name}")
         vals.append(float(features[name]))
 
-    x = np.array(vals, dtype=float).reshape(1, -1)
-    return x
+    # Return DataFrame with proper column names
+    return pd.DataFrame([vals], columns=feature_cols)
 
 
 # --------------------------------------------------
