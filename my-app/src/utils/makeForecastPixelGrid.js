@@ -29,8 +29,8 @@ function getLon(pred) {
 export default function makeForecastPixelGrid(predictions = []) {
   if (!predictions || predictions.length === 0) return { imageDataUrl: null, bbox: null };
 
-  // Map each prediction into a block row/col
-  const cells = new Map();
+  // Map each prediction into a block row/col and keep max probability per cell
+  const cells = new Map(); // key -> { row, col, prob }
   let minRow = Infinity, maxRow = -Infinity, minCol = Infinity, maxCol = -Infinity;
 
   for (const p of predictions) {
@@ -39,7 +39,11 @@ export default function makeForecastPixelGrid(predictions = []) {
     if (lat == null || lon == null) continue;
     const { row, col } = snapToGrid(lat, lon);
     const key = `${row},${col}`;
-    cells.set(key, { row, col });
+    const prob = Number(p.spread_probability ?? p.probability ?? p.last_prob ?? 0) || 0;
+    const prev = cells.get(key);
+    if (!prev || prob > prev.prob) {
+      cells.set(key, { row, col, prob });
+    }
     if (row < minRow) minRow = row;
     if (row > maxRow) maxRow = row;
     if (col < minCol) minCol = col;
@@ -66,14 +70,21 @@ export default function makeForecastPixelGrid(predictions = []) {
   // Fill the background transparent
   ctx.clearRect(0, 0, width, height);
 
-  // Solid dark grey for initial ignition (non-transparent)
-  ctx.fillStyle = '#333333';
+  // Helper: color by probability with a minimum opacity to ensure visibility
+  function colorForProb(prob) {
+    const a = Math.max(0.25, Math.min(0.95, prob)); // clamp alpha
+    if (prob >= 0.75) return `rgba(210,34,34,${a})`;      // red
+    if (prob >= 0.50) return `rgba(255,136,0,${a})`;      // orange
+    if (prob >= 0.25) return `rgba(255,196,0,${a})`;      // yellow
+    return `rgba(255,230,122,${a * 0.8})`;                // pale yellow
+  }
 
   // Draw cells. Y axis: rows increase with latitude, so draw with top = maxRow
-  for (const key of cells.keys()) {
-    const [r, c] = key.split(',').map(Number);
+  for (const entry of cells.values()) {
+    const { row: r, col: c, prob } = entry;
     const x = (c - minCol) * cellPx;
     const y = (maxRow - r) * cellPx; // invert rows for canvas Y
+    ctx.fillStyle = colorForProb(prob);
     ctx.fillRect(x, y, cellPx, cellPx);
   }
 

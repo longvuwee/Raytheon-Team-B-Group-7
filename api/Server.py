@@ -826,6 +826,58 @@ def predict_spread_animation():
 
     predictions_out = []
 
+    # Prepare DB connection for persisting per-cell state across the animation
+    conn = None
+    cur = None
+    try:
+        conn = get_db_conn()
+        conn.autocommit = False
+        cur = conn.cursor()
+        # Ensure tables exist (idempotent)
+        try:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS block_index (
+                    block_id TEXT PRIMARY KEY,
+                    block_row INT,
+                    block_col INT,
+                    block_center_latitude DOUBLE PRECISION,
+                    block_center_longitude DOUBLE PRECISION,
+                    T INT,
+                    T_burn INT,
+                    block_avg_spread_probability DOUBLE PRECISION,
+                    updated_at TIMESTAMPTZ DEFAULT now()
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS fire_cell_state (
+                    block_row INT,
+                    block_col INT,
+                    block_id TEXT,
+                    last_latitude DOUBLE PRECISION,
+                    last_longitude DOUBLE PRECISION,
+                    t INT,
+                    t_burn INT,
+                    last_prob DOUBLE PRECISION,
+                    prob_sum DOUBLE PRECISION,
+                    prob_count INT,
+                    instant_spread_probability DOUBLE PRECISION,
+                    updated_at TIMESTAMPTZ DEFAULT now(),
+                    PRIMARY KEY (block_row, block_col)
+                )
+                """
+            )
+        except Exception:
+            # Ignore DDL failures; we'll still attempt to run simulation
+            conn.rollback()
+            cur = conn.cursor()
+    except Exception:
+        # If we cannot connect, proceed with simulation-only (no persistence)
+        conn = None
+        cur = None
+
     # Simulation loop
     for t in range(time_steps):
         if len(blocks) > MAX_CELLS:
@@ -895,8 +947,98 @@ def predict_spread_animation():
                 "block_id": nb_id,
             })
 
+            # Persist per-cell state if DB available
+            if cur is not None:
+                try:
+                    # Upsert block_index with latest T/T_burn and average prob (use current prob)
+                    cur.execute(
+                        """
+                        INSERT INTO block_index (
+                            block_id, block_row, block_col, block_center_latitude, block_center_longitude,
+                            T, T_burn, block_avg_spread_probability
+                        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (block_id) DO UPDATE SET
+                            block_row = EXCLUDED.block_row,
+                            block_col = EXCLUDED.block_col,
+                            block_center_latitude = EXCLUDED.block_center_latitude,
+                            block_center_longitude = EXCLUDED.block_center_longitude,
+                            T = EXCLUDED.T,
+                            T_burn = EXCLUDED.T_burn,
+                            block_avg_spread_probability = EXCLUDED.block_avg_spread_probability,
+                            updated_at = now()
+                        """,
+                        (
+                            nb_id,
+                            meta["row"],
+                            meta["col"],
+                            meta["center_lat"],
+                            meta["center_lon"],
+                            new_T,
+                            new_T_burn,
+                            prob,
+                        ),
+                    )
+
+                    # Upsert fire_cell_state accumulating probability samples and last state
+                    cur.execute(
+                        """
+                        INSERT INTO fire_cell_state (
+                            block_row, block_col, block_id, last_latitude, last_longitude,
+                            t, t_burn, last_prob, prob_sum, prob_count, instant_spread_probability
+                        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (block_row, block_col) DO UPDATE SET
+                            block_id = EXCLUDED.block_id,
+                            last_latitude = EXCLUDED.last_latitude,
+                            last_longitude = EXCLUDED.last_longitude,
+                            t = EXCLUDED.t,
+                            t_burn = EXCLUDED.t_burn,
+                            last_prob = EXCLUDED.last_prob,
+                            prob_sum = fire_cell_state.prob_sum + EXCLUDED.last_prob,
+                            prob_count = fire_cell_state.prob_count + 1,
+                            instant_spread_probability = EXCLUDED.instant_spread_probability,
+                            updated_at = now()
+                        """,
+                        (
+                            meta["row"],
+                            meta["col"],
+                            nb_id,
+                            meta["center_lat"],
+                            meta["center_lon"],
+                            new_T,
+                            new_T_burn,
+                            prob,
+                            prob,
+                            1,
+                            prob,
+                        ),
+                    )
+                except Exception:
+                    # Keep simulation running; defer commit and continue
+                    if conn is not None:
+                        try:
+                            conn.rollback()
+                            cur = conn.cursor()
+                        except Exception:
+                            cur = None
+
         # Optional: prune blocks that are burned out and not relevant
         # (keep them; rendering may want historical burned cells)
+
+    # Commit DB changes if any
+    if conn is not None and cur is not None:
+        try:
+            conn.commit()
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        finally:
+            try:
+                cur.close()
+                conn.close()
+            except Exception:
+                pass
 
     return jsonify({"predictions": predictions_out, "time_steps": time_steps})
     

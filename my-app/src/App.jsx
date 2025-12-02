@@ -30,7 +30,9 @@ import FireInputsProcessor from "./components/FireInputsProcessor";
 import useTimeline from "./hooks/useTimeline";
 
 /* ---- Utils ---- */
-import { generateSpreadForecast } from "./utils/forecastApi";
+import { generateSpreadForecast, runPointPrediction } from "./utils/forecastApi";
+import { fetchRecentFireInputs } from "./api/fireInputsApi";
+import { selectAndPredictNeighborhood } from "./api/blockStateApi";
 import makeForecastHeatmap from "./utils/makeForecastHeatmap";
 import makeForecastPixelGrid, {
   snapToGrid,
@@ -84,6 +86,7 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const prevLayersRef = useRef(null);
+  const [statusMessage, setStatusMessage] = useState(null);
 
   // Keep this stable so GlobeCanvas doesn't re-init
   const initialView = useMemo(
@@ -251,17 +254,15 @@ function App() {
         let imageDataUrl = null;
         let bbox = null;
 
-        // Hour 0: try discrete pixel-grid first
-        if (h === 0) {
-          try {
-            const pixel = makeForecastPixelGrid(preds);
-            if (pixel && pixel.imageDataUrl) {
-              imageDataUrl = pixel.imageDataUrl;
-              bbox = pixel.bbox;
-            }
-          } catch (e) {
-            console.warn("makeForecastPixelGrid failed:", e);
+        // Try discrete pixel-grid for all hours first (clearer than heatmap)
+        try {
+          const pixel = makeForecastPixelGrid(preds);
+          if (pixel && pixel.imageDataUrl) {
+            imageDataUrl = pixel.imageDataUrl;
+            bbox = pixel.bbox;
           }
+        } catch (e) {
+          console.warn("makeForecastPixelGrid failed:", e);
         }
 
         // Fallback to heatmap renderer
@@ -302,6 +303,140 @@ function App() {
     } catch (error) {
       console.error("Forecast generation failed:", error);
       window.alert("Failed to generate forecast. Please try again.");
+    }
+  };
+
+  // Handle neighbor-based prediction requests per your t/t_burn rule
+  const handleRunPointPredictionNeighbors = async (cluster) => {
+    try {
+      const clicked = cluster.clickedPoint || cluster.points[0];
+      const lat0 = clicked && (clicked.latitude ?? clicked.lat);
+      const lon0 = clicked && (clicked.longitude ?? clicked.lon);
+      if (!lat0 || !lon0) {
+        alert("Missing clicked point location");
+        return;
+      }
+      const center = snapToGrid(lat0, lon0);
+
+      // Predict for selected neighbors based on fire_cell_state around clicked block
+      const { cells, results } = await selectAndPredictNeighborhood(
+        { blockRow: center.row, blockCol: center.col, radius: 1, includeDiagonals: false, concurrency: 8 },
+        async (cell) => {
+          // Minimal row for backend features; environment defaults handled in preparePointInput inside runPointPrediction
+          const row = { id: `cell-${cell.row}-${cell.col}`, latitude: cell.centerLat, longitude: cell.centerLon };
+          return runPointPrediction(row, "random_forest");
+        }
+      );
+
+      // Convert results into a single-frame prediction overlay for inspection
+      const preds = results
+        .filter((r) => r && r.ok && r.res)
+        .map((r) => ({
+          time: 1,
+          lat: r.cell.centerLat,
+          lon: r.cell.centerLon,
+          spread_probability: Number(r.res.instant_spread_probability ?? 0),
+        }));
+
+      const pixel = makeForecastPixelGrid(preds);
+      const frame = [{ hour: 1, imageDataUrl: pixel.imageDataUrl, bbox: pixel.bbox, predictions: preds }];
+      prevLayersRef.current = layers;
+      setLayers((prev) => ({ ...prev, "Predicted Spread": false, "MODIS Hotspots": false }));
+      setForecastPredictions(frame);
+      setForecastFrame(0);
+      setIsPlaying(false);
+    } catch (e) {
+      console.error("Neighbor prediction failed:", e);
+      alert("Neighbor prediction failed: " + (e?.message || e));
+    }
+  };
+
+  // Seed from Supabase fire_inputs as initial state
+  const seedFromFireInputs = async () => {
+    try {
+      const rows = await fetchRecentFireInputs(50);
+      if (!rows || rows.length === 0) {
+        alert("No fire_inputs rows found");
+        return;
+      }
+      const points = rows.map((r) => ({
+        latitude: r.latitude,
+        longitude: r.longitude,
+        brightness: r.brightness,
+        bright_t31: r.bright_t31,
+        confidence: r.confidence,
+        daynight: r.daynight,
+        elevation: r.elevation,
+        slope: r.slope,
+        aspect: r.aspect,
+        temp: r.temp,
+        humidity: r.humidity,
+        wind_speed: r.wind_speed,
+        precip: r.precip,
+        month: r.month,
+      }));
+      const cluster = { points, clickedPoint: points[0] };
+      setSelectedCluster(cluster);
+      setPopupPosition(null);
+      alert(`Seeded ${points.length} points from fire_inputs`);
+    } catch (e) {
+      console.error("Seed from fire_inputs failed:", e);
+      alert("Seed from fire_inputs failed: " + (e?.message || e));
+    }
+  };
+
+  // One-click demo: center camera on recent fire_inputs and run neighbor predictions
+  const runDemo = async () => {
+    try {
+      setStatusMessage("Running demo: fetching seeds...");
+      const rows = await fetchRecentFireInputs(50);
+      if (!rows || rows.length === 0) {
+        alert("No fire_inputs rows available for demo");
+        return;
+      }
+      // Compute centroid of recent rows
+      const lat = rows.reduce((s, r) => s + Number(r.latitude || 0), 0) / rows.length;
+      const lon = rows.reduce((s, r) => s + Number(r.longitude || 0), 0) / rows.length;
+
+      // Pick up to 12 points nearest the centroid to keep simulation focused
+      const withDist = rows.map(r => ({
+        row: r,
+        d2: (Number(r.latitude) - lat) ** 2 + (Number(r.longitude) - lon) ** 2,
+      })).sort((a,b) => a.d2 - b.d2).slice(0, 12).map(x => x.row);
+
+      // Fly the camera
+      const globus = globeRef.current && globeRef.current.getGlobus && globeRef.current.getGlobus();
+      if (globus?.planet?.camera?.flyLonLat) {
+        globus.planet.camera.flyLonLat({ lon, lat, height: 300000 });
+      }
+
+      setStatusMessage("Generating 24h forecast...");
+      // Build a cluster from recent fire_inputs (include features so server template is rich)
+      const points = withDist.map((r) => ({
+        latitude: r.latitude,
+        longitude: r.longitude,
+        brightness: r.brightness,
+        bright_t31: r.bright_t31,
+        confidence: r.confidence,
+        daynight: r.daynight,
+        elevation: r.elevation,
+        slope: r.slope,
+        aspect: r.aspect,
+        temp: r.temp,
+        humidity: r.humidity,
+        wind_speed: r.wind_speed,
+        precip: r.precip,
+        month: r.month,
+      }));
+      const cluster = { points, clickedPoint: { latitude: lat, longitude: lon } };
+
+      await handleRunForecast(cluster, 24);
+      setStatusMessage(null);
+      setIsPlaying(true);
+    } catch (e) {
+      console.error("Run Demo failed:", e);
+      alert("Run Demo failed: " + (e?.message || e));
+      setStatusMessage(null);
     }
   };
 
@@ -463,6 +598,7 @@ function App() {
                   setPopupPosition(null);
                 }}
                 onRunForecast={handleRunForecast}
+                onRunPointPrediction={handleRunPointPredictionNeighbors}
               />
             )}
 
@@ -548,10 +684,35 @@ function App() {
         }}
       >
         <button onClick={testBackend}>Test backend</button>
+        <div style={{ marginTop: 8 }}>
+          <button onClick={seedFromFireInputs}>Seed from fire_inputs</button>
+        </div>
+        <div style={{ marginTop: 8 }}>
+          <button onClick={runDemo}>Run Demo</button>
+        </div>
       </div>
 
       {/* Batch fire_inputs processor */}
       <FireInputsProcessor />
+
+      {statusMessage && (
+        <div
+          style={{
+            position: "fixed",
+            top: "12px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "rgba(0,0,0,0.7)",
+            color: "#fff",
+            padding: "8px 12px",
+            borderRadius: 6,
+            zIndex: 9999,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+          }}
+        >
+          {statusMessage}
+        </div>
+      )}
 
       {renderContent()}
     </div>

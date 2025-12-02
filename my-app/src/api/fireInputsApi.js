@@ -14,6 +14,21 @@ export async function fetchUnprocessedFireInputs(limit = 100) {
   return data || [];
 }
 
+// Fetch recent fire_inputs rows to use as initial state/seed
+export async function fetchRecentFireInputs(limit = 200) {
+  const { data, error } = await supabase
+    .from('fire_inputs')
+    .select(
+      `id, input_id, model, latitude, longitude, brightness, bright_t31, confidence, daynight,
+       elevation, slope, aspect, temp, humidity, wind_speed, precip, month, processed, processed_at,
+       block_id, block_row, block_col`
+    )
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+}
+
 export async function markProcessed(row, status = 'ok', responseObj = null) {
   const updates = {
     processed: true,
