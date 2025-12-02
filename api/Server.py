@@ -1002,7 +1002,12 @@ def predict_spread_animation():
     if not isinstance(cluster, list) or len(cluster) == 0:
         return jsonify({"error": "cluster must be a non-empty array of points"}), 400
     
+    # Generate unique simulation ID
+    import uuid
+    simulation_id = body.get("simulation_id") or str(uuid.uuid4())
+    
     print(f"\n=== PREDICT-SPREAD-ANIMATION START ===")
+    print(f"Simulation ID: {simulation_id}")
     print(f"Cluster size: {len(cluster)} points")
     print(f"Time steps: {time_steps}")
     print(f"Model: {model_name}")
@@ -1218,6 +1223,30 @@ def predict_spread_animation():
                 "spread_probability": prob,
                 "block_id": nb_id,
             })
+            
+            # Write prediction to database
+            if cur is not None:
+                try:
+                    cur.execute(
+                        """
+                        INSERT INTO fire_predictions (
+                            simulation_id, time_step, block_id, latitude, longitude,
+                            spread_probability, t, t_burn, exposure
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (simulation_id, time_step, block_id) DO UPDATE SET
+                            latitude = EXCLUDED.latitude,
+                            longitude = EXCLUDED.longitude,
+                            spread_probability = EXCLUDED.spread_probability,
+                            t = EXCLUDED.t,
+                            t_burn = EXCLUDED.t_burn,
+                            exposure = EXCLUDED.exposure,
+                            created_at = now()
+                        """,
+                        (simulation_id, t, nb_id, meta["center_lat"], meta["center_lon"],
+                         prob, new_T, new_T_burn, new_exposure)
+                    )
+                except Exception as e:
+                    print(f"Warning: Failed to write prediction to DB: {e}")
         
         # Log progress every 5 steps with threshold info
         step_elapsed = time.time() - step_start
@@ -1341,7 +1370,273 @@ def predict_spread_animation():
     total_time = time.time() - start_time
     print(f"=== PREDICTION COMPLETE: {len(predictions_out)} predictions in {total_time:.2f}s ===\n")
     
-    return jsonify({"predictions": predictions_out, "time_steps": time_steps})
+    return jsonify({
+        "predictions": predictions_out, 
+        "time_steps": time_steps,
+        "simulation_id": simulation_id
+    })
+
+
+@app.route("/get-predictions/<simulation_id>/<int:time_step>", methods=["GET"])
+def get_predictions_for_time_step(simulation_id, time_step):
+    """
+    Fetch predictions from database for a specific simulation and time step.
+    """
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+    except Exception as e:
+        return jsonify({"error": f"Database not available: {e}"}), 500
+    
+    try:
+        cur.execute(
+            """
+            SELECT block_id, latitude, longitude, spread_probability, t, t_burn, exposure
+            FROM fire_predictions
+            WHERE simulation_id = %s AND time_step = %s
+            ORDER BY block_id
+            """,
+            (simulation_id, time_step)
+        )
+        rows = cur.fetchall()
+        
+        predictions = [
+            {
+                "block_id": row[0],
+                "lat": row[1],
+                "lon": row[2],
+                "spread_probability": row[3],
+                "t": row[4],
+                "t_burn": row[5],
+                "exposure": row[6]
+            }
+            for row in rows
+        ]
+        
+        return jsonify({
+            "simulation_id": simulation_id,
+            "time_step": time_step,
+            "predictions": predictions,
+            "count": len(predictions)
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+
+
+@app.route("/run-next-step", methods=["POST"])
+def run_next_step():
+    """
+    Run predictions for the next time step, only on cells where T_burn=1.
+    This allows incremental simulation triggered by the frontend slider.
+    """
+    try:
+        body = request.get_json(force=True) or {}
+    except Exception as e:
+        return jsonify({"error": f"Invalid JSON body: {e}"}), 400
+    
+    simulation_id = body.get("simulation_id")
+    current_time_step = int(body.get("current_time_step", 0))
+    model_name = body.get("model_name", "random_forest").lower()
+    template = body.get("template", {})
+    
+    if not simulation_id:
+        return jsonify({"error": "simulation_id is required"}), 400
+    
+    next_time_step = current_time_step + 1
+    
+    print(f"\\n=== RUN NEXT STEP: {simulation_id} ===")
+    print(f"Current step: {current_time_step}, Next step: {next_time_step}")
+    
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+    except Exception as e:
+        return jsonify({"error": f"Database not available: {e}"}), 500
+    
+    try:
+        # Get all burning cells (T_burn=1) from current time step
+        cur.execute(
+            """
+            SELECT block_id, latitude, longitude, t, t_burn, exposure
+            FROM fire_predictions
+            WHERE simulation_id = %s AND time_step = %s AND t_burn = 1
+            """,
+            (simulation_id, current_time_step)
+        )
+        burning_cells = cur.fetchall()
+        
+        if len(burning_cells) == 0:
+            return jsonify({
+                "simulation_id": simulation_id,
+                "time_step": next_time_step,
+                "predictions": [],
+                "message": "No burning cells found"
+            })
+        
+        print(f"Found {len(burning_cells)} burning cells")
+        
+        # Build candidates from neighbors
+        candidates = {}
+        for row in burning_cells:
+            block_id = row[0]
+            # Parse block_id to get row/col (format: "CA-row-col")
+            parts = block_id.split("-")
+            if len(parts) != 3:
+                continue
+            b_row = int(parts[1])
+            b_col = int(parts[2])
+            
+            # Add 8 neighbors
+            for dr in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    nr = b_row + dr
+                    nc = b_col + dc
+                    nb_id = f"CA-{nr}-{nc}"
+                    
+                    # Calculate center lat/lon
+                    origin_lat = 25.0
+                    origin_lon = -125.0
+                    cell_lat = DEG_LAT_200FT
+                    center_lat = origin_lat + (nr + 0.5) * cell_lat
+                    cell_lon = DEG_LON_200FT_AT_EQ * max(math.cos(math.radians(center_lat)), 0.1)
+                    center_lon = origin_lon + (nc + 0.5) * cell_lon
+                    
+                    if nb_id not in candidates:
+                        candidates[nb_id] = {
+                            "row": nr,
+                            "col": nc,
+                            "center_lat": center_lat,
+                            "center_lon": center_lon,
+                            "burning_neighbors": 1
+                        }
+                    else:
+                        candidates[nb_id]["burning_neighbors"] += 1
+        
+        print(f"Generated {len(candidates)} candidates")
+        
+        # Get existing state for candidates
+        candidate_ids = list(candidates.keys())
+        placeholders = ",".join(["%s"] * len(candidate_ids))
+        cur.execute(
+            f"""
+            SELECT block_id, t, t_burn, exposure
+            FROM fire_predictions
+            WHERE simulation_id = %s AND time_step = %s AND block_id IN ({placeholders})
+            """,
+            [simulation_id, current_time_step] + candidate_ids
+        )
+        existing_state = {row[0]: {"t": row[1], "t_burn": row[2], "exposure": row[3]} 
+                          for row in cur.fetchall()}
+        
+        # Filter candidates: only cells where t_burn=0 (not burning/not burned) that have burning neighbors
+        filtered_candidates = {}
+        for nb_id, meta in candidates.items():
+            if nb_id in existing_state:
+                # Cell already exists - only include if t_burn=0 (can still ignite)
+                if existing_state[nb_id]["t_burn"] == 0:
+                    filtered_candidates[nb_id] = meta
+            else:
+                # New cell (not in previous step) - include it
+                filtered_candidates[nb_id] = meta
+        
+        print(f"Filtered to {len(filtered_candidates)} candidates (t_burn=0 with burning neighbors)")
+        
+        # Run predictions for each filtered candidate
+        predictions_out = []
+        time_steps_total = 12  # Default
+        
+        for nb_id, meta in filtered_candidates.items():
+            # Get old state
+            if nb_id in existing_state:
+                old_T = existing_state[nb_id]["t"]
+                old_T_burn = existing_state[nb_id]["t_burn"]
+                old_exposure = existing_state[nb_id]["exposure"]
+            else:
+                old_T, old_T_burn, old_exposure = 0, 0, 0.0
+            
+            # Build features
+            feat = build_features_for_block_fixed(
+                block_id=nb_id,
+                center_lat=meta["center_lat"],
+                center_lon=meta["center_lon"],
+                template=template,
+                burning_neighbors=meta.get("burning_neighbors", 1),
+                time_step=next_time_step,
+                use_deterministic_seed=True
+            )
+            
+            # Predict
+            try:
+                pred = predict_fire_spread(feat, model_name=model_name)
+                prob = float(pred.get("spread_probability", 0.0))
+            except Exception:
+                prob = 0.0
+            
+            # Update timeline
+            new_T, new_T_burn, new_exposure = update_timeline(
+                old_T, old_T_burn, prob, True,
+                time_step=next_time_step,
+                time_steps=time_steps_total,
+                burning_neighbors=meta.get("burning_neighbors", 0),
+                exposure=old_exposure
+            )
+            
+            # Write to database
+            cur.execute(
+                """
+                INSERT INTO fire_predictions (
+                    simulation_id, time_step, block_id, latitude, longitude,
+                    spread_probability, t, t_burn, exposure
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (simulation_id, time_step, block_id) DO UPDATE SET
+                    latitude = EXCLUDED.latitude,
+                    longitude = EXCLUDED.longitude,
+                    spread_probability = EXCLUDED.spread_probability,
+                    t = EXCLUDED.t,
+                    t_burn = EXCLUDED.t_burn,
+                    exposure = EXCLUDED.exposure,
+                    created_at = now()
+                """,
+                (simulation_id, next_time_step, nb_id, meta["center_lat"], meta["center_lon"],
+                 prob, new_T, new_T_burn, new_exposure)
+            )
+            
+            predictions_out.append({
+                "block_id": nb_id,
+                "lat": meta["center_lat"],
+                "lon": meta["center_lon"],
+                "spread_probability": prob,
+                "t": new_T,
+                "t_burn": new_T_burn,
+                "exposure": new_exposure
+            })
+        
+        conn.commit()
+        print(f"Wrote {len(predictions_out)} predictions for time step {next_time_step}")
+        
+        return jsonify({
+            "simulation_id": simulation_id,
+            "time_step": next_time_step,
+            "predictions": predictions_out,
+            "count": len(predictions_out)
+        })
+        
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
 
 
 # Add debug endpoints for testing and troubleshooting
