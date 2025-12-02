@@ -24,3 +24,7 @@ Thumbs.db
 *.geojson
 api-keys.txt
 *.tif
+
+# Python virtual environments
+.venv/
+venv/
