@@ -25,7 +25,10 @@ export async function fetchRecentFireInputs(limit = 200) {
     )
     .order('created_at', { ascending: false })
     .limit(limit);
-  if (error) throw error;
+  if (error) {
+    console.error('[fireInputsApi] fetchRecentFireInputs error:', error);
+    throw new Error(`Supabase error: ${error.message || JSON.stringify(error)}`);
+  }
   return data || [];
 }
 

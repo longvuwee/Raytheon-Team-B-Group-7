@@ -13,6 +13,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 from predictor import predict_fire_spread
+from fixes import build_features_for_block_fixed, log_prediction_debug, add_debug_endpoints_to_app
 
 app = Flask(__name__)
 # Robust CORS for browser clients (Render + local dev)
@@ -1085,36 +1086,33 @@ def predict_spread_animation():
             else:
                 old_T, old_T_burn = 0, 0
 
-            # Build feature dict: reuse template for non-location fields
-            feat = {}
-            for k in FEATURE_KEYS:
-                if k == "latitude":
-                    feat["latitude"] = meta["center_lat"]
-                elif k == "longitude":
-                    feat["longitude"] = meta["center_lon"]
-                else:
-                    # fall back to template values or zeros
-                    feat[k] = template.get(k, template.get(k.lower(), 0))
+            # FIXED: Build features with location-based variation
+            feat = build_features_for_block_fixed(
+                block_id=nb_id,
+                center_lat=meta["center_lat"],
+                center_lon=meta["center_lon"],
+                template=template,
+                burning_neighbors=meta.get("burning_neighbors", 1),
+                time_step=t,
+                use_deterministic_seed=True
+            )            
 
-            # Deterministic feature variation to avoid identical probabilities
-            # Seed on block_id + time so frames are stable but not uniform
-            seed_base = f"{nb_id}-{t}"
-            rnd = random.Random(seed_base)
-            # Small jitter ranges (tunable)
-            feat["temp"] = float(feat.get("temp", 0)) + rnd.uniform(-2.0, 2.0)
-            feat["humidity"] = float(feat.get("humidity", 0)) + rnd.uniform(-5.0, 5.0)
-            feat["wind_speed"] = float(feat.get("wind_speed", 0)) + rnd.uniform(-1.5, 1.5)
-            feat["slope"] = float(feat.get("slope", 0)) + rnd.uniform(-3.0, 3.0)
-            # Boost brightness by number of burning neighbors to simulate spread pressure
-            feat["brightness"] = float(feat.get("brightness", 0)) + 8.0 * float(meta.get("burning_neighbors", 1))
-            # Clamp basic physical bounds
-            feat["humidity"] = max(0.0, min(100.0, feat["humidity"]))
-            feat["wind_speed"] = max(0.0, feat["wind_speed"])            
-
+            # Optional: Log first few predictions for debugging
+            if t == 0 and len(predictions_out) < 3:
+                print(f"DEBUG: Block {nb_id} at t={t}")
+                print(f"  Location: ({meta['center_lat']:.4f}, {meta['center_lon']:.4f})")
+                print(f"  Features: elev={feat.get('elevation', 0):.1f}, slope={feat.get('slope', 0):.1f}, temp={feat.get('temp', 0):.1f}°C")
+            
             try:
                 pred = predict_fire_spread(feat, model_name=model_name)
                 prob = float(pred.get("spread_probability", 0.0))
-            except Exception:
+                
+                # Log prediction result
+                if t == 0 and len(predictions_out) < 3:
+                    print(f"  → Prediction: {prob:.4f}\n")
+            except Exception as e:
+                if t == 0 and len(predictions_out) < 3:
+                    print(f"  → Error: {e}\n")
                 prob = 0.0
 
             # Update timeline rules (use can_burn True)
@@ -1251,8 +1249,10 @@ def predict_spread_animation():
                 pass
 
     return jsonify({"predictions": predictions_out, "time_steps": time_steps})
-    
-    
+
+
+# Add debug endpoints for testing and troubleshooting
+add_debug_endpoints_to_app(app)
 
 
 if __name__ == "__main__":
