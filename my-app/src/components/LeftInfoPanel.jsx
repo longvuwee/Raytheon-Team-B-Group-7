@@ -16,7 +16,7 @@ export default function LeftInfoPanel({
 
   layers = {
     "Predicted Spread": true,
-    "2025 Fire Perimeters": true,
+    "2025 Fire Perimeters": false,
     "MODIS Hotspots": true,
   },
   setLayers = () => {},

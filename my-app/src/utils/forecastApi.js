@@ -5,11 +5,24 @@
 // Accept either VITE_API_URL or legacy VITE_BACKEND_URL and normalize (no trailing slash)
 const RAW_API_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
 const API_BASE_URL = String(RAW_API_URL).replace(/\/+$/, '');
+// Configurable timeout (defaults to 180s to avoid long-run aborts)
+const DEFAULT_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? 180000);
 
 async function requestWithLogging(url, options = {}) {
   try {
-    console.log('[api] fetch ->', (options.method || 'GET').toUpperCase(), url);
-    const res = await fetch(url, options);
+    const method = (options.method || 'GET').toUpperCase();
+    const bodyPreview = options.body ? (() => {
+      try { return typeof options.body === 'string' ? `${options.body.length}b` : '<non-string>'; } catch { return '<body>'; }
+    })() : '';
+    console.log('[api] fetch ->', method, url, bodyPreview ? `(body=${bodyPreview})` : '');
+
+    // Add a timeout via AbortController to avoid indefinite waits
+    const controller = new AbortController();
+    const { timeoutMs, ...fetchOptions } = options;
+    const ms = Number.isFinite(timeoutMs) ? Number(timeoutMs) : DEFAULT_TIMEOUT_MS;
+    const id = setTimeout(() => controller.abort(), ms);
+    const res = await fetch(url, { ...fetchOptions, signal: controller.signal });
+    clearTimeout(id);
     if (!res.ok) {
       // attempt to read response body for diagnostics
       const text = await res.text().catch(() => '<no body>');
@@ -31,13 +44,13 @@ async function requestWithLogging(url, options = {}) {
  * @param {string} modelName - Model to use (neural_network, random_forest, logreg)
  * @returns {Promise<Array>} Array of predictions for each time step
  */
-export async function generateSpreadForecast(clusterPoints, forecastHours = 24, modelName = "neural_network") {
+export async function generateSpreadForecast(clusterPoints, forecastHours = 24, modelName = "neural_network", spreadThreshold) {
   try {
     const url = `${API_BASE_URL}/predict-spread-animation`;
     const response = await requestWithLogging(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cluster: clusterPoints, time_steps: forecastHours, model_name: modelName }),
+      body: JSON.stringify({ cluster: clusterPoints, time_steps: forecastHours, model_name: modelName, ...(spreadThreshold !== undefined ? { spread_threshold: spreadThreshold } : {}) }),
     });
 
     const data = await response.json();
@@ -47,6 +60,70 @@ export async function generateSpreadForecast(clusterPoints, forecastHours = 24, 
     console.error('Failed to generate forecast:', error);
     throw error;
   }
+}
+
+/**
+ * Stream fire spread predictions using Server-Sent Events (SSE).
+ * Never times out client-side; yields step events as they arrive.
+ *
+ * @param {Object} params
+ * @param {Array} params.clusterPoints - Array of seed points
+ * @param {number} params.forecastHours - Number of steps to simulate
+ * @param {string} params.modelName - Model to use (random_forest|logreg|neural_network)
+ * @param {number} [params.spreadThreshold]
+ * @param {boolean} [params.fastMode]
+ * @param {number} [params.maxCells]
+ * @param {number} [params.maxCandidatesPerStep]
+ * @param {(payload)=>void} [params.onStep] - Called with { time, predictions }
+ * @param {(payload)=>void} [params.onLog]
+ * @param {(payload)=>void} [params.onDone]
+ * @param {(err)=>void} [params.onError]
+ * @returns {EventSource} - Caller should keep and close when done.
+ */
+export function streamSpreadForecast({
+  clusterPoints,
+  forecastHours = 24,
+  modelName = "logreg",
+  spreadThreshold,
+  fastMode = true,
+  maxCells,
+  maxCandidatesPerStep,
+  onStep,
+  onLog,
+  onDone,
+  onError,
+}) {
+  const params = new URLSearchParams();
+  params.set("cluster", JSON.stringify(clusterPoints || []));
+  params.set("time_steps", String(forecastHours));
+  params.set("model_name", modelName);
+  if (spreadThreshold !== undefined) params.set("spread_threshold", String(spreadThreshold));
+  if (fastMode !== undefined) params.set("fast_mode", String(!!fastMode));
+  if (maxCells !== undefined) params.set("max_cells", String(maxCells));
+  if (maxCandidatesPerStep !== undefined) params.set("max_candidates_per_step", String(maxCandidatesPerStep));
+
+  const url = `${API_BASE_URL}/predict-spread-stream?${params.toString()}`;
+  console.log("[api:sse] opening:", url);
+  const es = new EventSource(url);
+
+  es.addEventListener("log", (e) => {
+    try { const data = JSON.parse(e.data); onLog && onLog(data); }
+    catch { onLog && onLog({ message: e.data }); }
+  });
+  es.addEventListener("step", (e) => {
+    try { const data = JSON.parse(e.data); onStep && onStep(data); }
+    catch (err) { console.warn("[api:sse] step parse error", err, e.data); }
+  });
+  es.addEventListener("done", (e) => {
+    try { const data = JSON.parse(e.data); onDone && onDone(data); }
+    catch { onDone && onDone({}); }
+    es.close();
+  });
+  es.addEventListener("error", (e) => {
+    console.warn("[api:sse] error", e);
+    onError && onError(e);
+  });
+  return es;
 }
 
 /**

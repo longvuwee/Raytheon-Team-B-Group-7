@@ -57,12 +57,11 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
           return;
         }
 
-        // Build date filter: use provided date range
+        // Build date filter using created_at and apply confidence=100
         const startISO = new Date(startDate).toISOString().replace('T', ' ').substring(0, 19);
         const endISO = new Date(endDate).toISOString().replace('T', ' ').substring(0, 19);
-
-        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fires?select=latitude,longitude,datetime&datetime=gte.${startISO}&datetime=lt.${endISO}`;
-        console.log("FiresLayer: Fetching from", url);
+        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fire_inputs?select=latitude,longitude,confidence,created_at&confidence=gte.80&created_at=gte.${startISO}&created_at=lt.${endISO}`;
+        console.log("FiresLayer: Fetching fire_inputs (confidence>=80, date-filtered) from", url);
         const res = await fetch(url, {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -73,7 +72,7 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
         console.log("FiresLayer: Fetch response", { status: res.status, ok: res.ok });
         if (!res.ok) throw new Error(`Supabase fetch failed: ${res.status} ${res.statusText}`);
         const rows = await res.json();
-        console.log("FiresLayer: Received rows", rows.length);
+        console.log("FiresLayer: Received rows from fire_inputs", rows.length);
 
         // Parse rows into {lat, lon}
         const allPoints = rows
@@ -86,7 +85,7 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
 
         // Keep only clustered points (remove isolated points)
         const clustered = filterClusteredOutliers(allPoints, 5, 4);
-        console.log(`FiresLayer: Loaded ${allPoints.length} points for ${startISO}, keeping ${clustered.length} clustered`);
+        console.log(`FiresLayer: Loaded ${allPoints.length} fire_inputs points (conf>=80, date-filtered), keeping ${clustered.length} clustered`);
 
         // Store all points with their data for cluster detection
         const pointsWithData = clustered.map(p => ({ ...p, ...rows.find(r => 
@@ -105,6 +104,7 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
         }
         console.log(`FiresLayer: Added ${entities.length} entities`);
         sync();
+
 
         // Use globe-level click detection instead of per-entity events
         if (onClusterClick) {
@@ -136,11 +136,17 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
               const globeCanvas = globus.renderer.handler.canvas;
               const rect = globeCanvas.getBoundingClientRect();
               
+              // Derive a display date from created_at (date only)
+              const fireDate = clickedRow?.created_at
+                ? (new Date(clickedRow.created_at)).toISOString().split('T')[0]
+                : undefined;
+
               onClusterClick({
                 points: nearbyPoints,
                 centerLat,
                 centerLon,
-                dateRange: `${startISO.split(' ')[0]} to ${endISO.split(' ')[0]}`,
+                dateRange: undefined,
+                fireDate,
                 avgConfidence: nearbyPoints.reduce((sum, pt) => sum + (pt.confidence || 0), 0) / nearbyPoints.length,
                 clickedPoint: clickedRow || clickedPoint,
               }, {

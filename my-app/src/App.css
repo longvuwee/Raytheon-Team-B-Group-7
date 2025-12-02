@@ -1473,3 +1473,11 @@
 .color-dot.low {
   background: rgba(255, 200, 50, 0.6);
 }
+
+.color-dot.vlow {
+  background: rgba(255, 230, 122, 0.6);
+}
+
+.color-dot.burned {
+  background: rgba(96, 96, 96, 0.8);
+}

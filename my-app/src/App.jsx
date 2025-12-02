@@ -24,20 +24,19 @@ import SearchBar from "./components/SearchBar";
 import ClusterPopup from "./components/ClusterPopup";
 import ForecastControls from "./components/ForecastControls";
 import FireSpreadLayer from "./components/FireSpreadLayer";
-import FireInputsProcessor from "./components/FireInputsProcessor";
+// FireInputsProcessor removed
 
 /* ---- Hooks ---- */
 import useTimeline from "./hooks/useTimeline";
 
 /* ---- Utils ---- */
-import { generateSpreadForecast, runPointPrediction } from "./utils/forecastApi";
-import { fetchRecentFireInputs } from "./api/fireInputsApi";
+import { generateSpreadForecast, runPointPrediction, preparePointInput, streamSpreadForecast } from "./utils/forecastApi";
+import { fetchRecentFireInputs, fetchNearestFireInput } from "./api/fireInputsApi";
 import { selectAndPredictNeighborhood } from "./api/blockStateApi";
 import makeForecastHeatmap from "./utils/makeForecastHeatmap";
-import makeForecastPixelGrid, {
-  snapToGrid,
-  blockCenter,
-} from "./utils/makeForecastPixelGrid";
+import makeForecastPixelGrid, { snapToGrid, blockCenter } from "./utils/makeForecastPixelGrid";
+import makeInitialStateRaster from "./utils/makeInitialStateRaster";
+import { GeoImage } from "@openglobus/og";
 
 // Shared backend base URL
 const BACKEND_URL =
@@ -74,7 +73,7 @@ function App() {
   const [vizMode, setVizMode] = useState("KDE Heatmap");
   const [layers, setLayers] = useState({
     "Predicted Spread": true,
-    "2025 Fire Perimeters": true,
+    "2025 Fire Perimeters": false,
     "MODIS Hotspots": true,
   });
 
@@ -87,6 +86,9 @@ function App() {
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const prevLayersRef = useRef(null);
   const [statusMessage, setStatusMessage] = useState(null);
+  const initialStateLayerRef = useRef(null);
+  const forecastStreamRef = useRef(null);
+  const burnedCellsRef = useRef(new Set());
 
   // Keep this stable so GlobeCanvas doesn't re-init
   const initialView = useMemo(
@@ -166,78 +168,147 @@ function App() {
       console.log("Running forecast for cluster:", cluster);
 
       // Close popup
+      // Close popup
       setSelectedCluster(null);
       setPopupPosition(null);
 
-      // Generate predictions from backend (neural network model)
-      const resp = await generateSpreadForecast(
-        cluster.points,
-        forecastHours,
-        "neural_network"
-      );
-
-      let predictions = resp.predictions || [];
-
-      // Inject a contiguous N×N rasterized "seed" around the click location
+      // --- Initial state raster from cluster points ---
+      let initRaster = null;
       try {
-        const clicked = cluster.clickedPoint || cluster.points[0];
-        const lat0 = clicked && (clicked.latitude ?? clicked.lat);
-        const lon0 = clicked && (clicked.longitude ?? clicked.lon);
-
-        if (lat0 && lon0) {
-          const center = snapToGrid(lat0, lon0);
-          const gridSize = 7; // odd -> centered
-          const half = Math.floor(gridSize / 2);
-          const seedPoints = [];
-
-          for (let dr = -half; dr <= half; dr++) {
-            for (let dc = -half; dc <= half; dc++) {
-              const r = center.row + dr;
-              const c = center.col + dc;
-              const bc = blockCenter(r, c);
-              seedPoints.push({
-                time: 0,
-                lat: bc.centerLat,
-                lon: bc.centerLon,
-                spread_probability: 1.0,
-              });
-            }
-          }
-
-          predictions = predictions.concat(seedPoints);
+        // Remove any previous initial-state overlay
+        const globus = globeRef.current && globeRef.current.getGlobus && globeRef.current.getGlobus();
+        if (initialStateLayerRef.current && globus?.planet) {
+          try { globus.planet.removeLayer(initialStateLayerRef.current); } catch {}
+          initialStateLayerRef.current = null;
+        }
+        const raster = makeInitialStateRaster(cluster.points || []);
+        initRaster = raster;
+        if (raster?.imageDataUrl && raster?.bbox && globus?.planet) {
+          const [minLon, minLat, maxLon, maxLat] = raster.bbox;
+          const layer = new GeoImage("Initial Fire State", {
+            src: raster.imageDataUrl,
+            corners: [
+              [minLon, minLat],
+              [maxLon, minLat],
+              [maxLon, maxLat],
+              [minLon, maxLat],
+            ],
+            visibility: true,
+            isBaseLayer: false,
+            opacity: 0.7,
+          });
+          globus.planet.addLayer(layer);
+          initialStateLayerRef.current = layer;
+          console.log("App: Initial Fire State raster added on forecast run; cells=", raster?.cells?.length || 0);
         }
       } catch (e) {
-        console.warn("Failed to create raster seed:", e);
+        console.warn("App: initial state raster generation failed", e);
       }
 
-      const timeSteps = resp.time_steps || forecastHours || 1;
+      // --- Streamed simulation via backend (SSE) ---
+      const clicked = cluster.clickedPoint || cluster.points[0];
+      if (!clicked) {
+        alert("No clicked point available for forecast");
+        return;
+      }
+      const lat0 = Number(clicked.latitude ?? clicked.lat);
+      const lon0 = Number(clicked.longitude ?? clicked.lon);
+      if (!Number.isFinite(lat0) || !Number.isFinite(lon0)) {
+        alert("Clicked point is missing latitude/longitude");
+        return;
+      }
 
-      // Group predictions by hour
-      const predictionsByHour = {};
-      predictions.forEach((pred) => {
-        const hour =
-          pred.time !== undefined && pred.time !== null ? pred.time : 0;
-        if (!predictionsByHour[hour]) predictionsByHour[hour] = [];
-        predictionsByHour[hour].push(pred);
-      });
+      // Look up the nearest fire_inputs row to use as the seed (ensures features come from the table)
+      const seedRow = await fetchNearestFireInput(lat0, lon0);
+      const seedPoint = seedRow
+        ? {
+            latitude: seedRow.latitude,
+            longitude: seedRow.longitude,
+            brightness: seedRow.brightness,
+            bright_t31: seedRow.bright_t31,
+            confidence: seedRow.confidence,
+            daynight: seedRow.daynight,
+            elevation: seedRow.elevation,
+            slope: seedRow.slope,
+            aspect: seedRow.aspect,
+            temp: seedRow.temp,
+            humidity: seedRow.humidity,
+            wind_speed: seedRow.wind_speed,
+            precip: seedRow.precip,
+            month: seedRow.month,
+          }
+        : { latitude: lat0, longitude: lon0 };
 
-      // Compute overall bbox from cluster points for empty-frame fallback
-      const lats = cluster.points.map((p) => p.latitude || p.lat || 0);
-      const lons = cluster.points.map((p) => p.longitude || p.lon || 0);
-      const minLat = Math.min(...lats);
-      const maxLat = Math.max(...lats);
-      const minLon = Math.min(...lons);
-      const maxLon = Math.max(...lons);
-      const latPadding = (maxLat - minLat) * 0.1 || 0.01;
-      const lonPadding = (maxLon - minLon) * 0.1 || 0.01;
-      const overallBbox = [
-        minLon - lonPadding,
-        minLat - latPadding,
-        maxLon + lonPadding,
-        maxLat + latPadding,
-      ];
+      // Build seed set from initial raster cells (preferred); fallback to cluster points
+      const seeds = (() => {
+        const templ = seedPoint;
+        const fromRaster = Array.isArray(initRaster?.cells) ? initRaster.cells : [];
+        const CAP = 2000; // backend has MAX_CELLS=5000; keep healthy margin
+        if (fromRaster.length) {
+          const out = [];
+          for (let i = 0; i < fromRaster.length && out.length < CAP; i++) {
+            const c = fromRaster[i];
+            out.push({
+              latitude: c.centerLat,
+              longitude: c.centerLon,
+              brightness: templ.brightness,
+              bright_t31: templ.bright_t31,
+              confidence:  templ.confidence ?? 100,
+              daynight:    templ.daynight ?? 1,
+              elevation:   templ.elevation,
+              slope:       templ.slope,
+              aspect:      templ.aspect,
+              temp:        templ.temp,
+              humidity:    templ.humidity,
+              wind_speed:  templ.wind_speed,
+              precip:      templ.precip,
+              month:       templ.month,
+            });
+          }
+          return out.length ? out : [templ];
+        }
+        // Fallback to cluster points de-duped by grid cell
+        const pts = Array.isArray(cluster.points) ? cluster.points : [];
+        const seen = new Set();
+        const out = [];
+        for (const p of pts) {
+          const plat = Number(p.latitude ?? p.lat);
+          const plon = Number(p.longitude ?? p.lon);
+          if (!Number.isFinite(plat) || !Number.isFinite(plon)) continue;
+          const cell = snapToGrid(plat, plon);
+          const key = `${cell.row},${cell.col}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({
+            latitude: plat,
+            longitude: plon,
+            brightness: templ.brightness,
+            bright_t31: templ.bright_t31,
+            confidence:  templ.confidence ?? 100,
+            daynight:    templ.daynight ?? 1,
+            elevation:   templ.elevation,
+            slope:       templ.slope,
+            aspect:      templ.aspect,
+            temp:        templ.temp,
+            humidity:    templ.humidity,
+            wind_speed:  templ.wind_speed,
+            precip:      templ.precip,
+            month:       templ.month,
+          });
+          if (out.length >= 200) break;
+        }
+        return out.length ? out : [templ];
+      })();
+      console.log("[forecast] seeding cells (from raster?):", Array.isArray(initRaster?.cells) && initRaster.cells.length ? 'yes' : 'no', 'count=', seeds.length, seeds.slice(0, 5));
 
-      // Helper: transparent PNG for truly empty frames
+      // Compute overall bbox from clicked point for empty-frame fallback
+      const latPad = 0.01;
+      const lonPad = 0.01;
+      const seedLat = Number(seedPoint.latitude ?? lat0 ?? 0);
+      const seedLon = Number(seedPoint.longitude ?? lon0 ?? 0);
+      const overallBbox = [seedLon - lonPad, seedLat - latPad, seedLon + lonPad, seedLat + latPad];
+
+      // Helper: transparent PNG for empty frames
       const makeEmptyImage = (width = 800, height = 600) => {
         const canvas = document.createElement("canvas");
         canvas.width = width;
@@ -247,47 +318,6 @@ function App() {
         return canvas.toDataURL("image/png");
       };
 
-      // Build forecastData frames for 0..timeSteps-1
-      const forecastData = [];
-      for (let h = 0; h < timeSteps; h++) {
-        const preds = predictionsByHour[h] || [];
-        let imageDataUrl = null;
-        let bbox = null;
-
-        // Try discrete pixel-grid for all hours first (clearer than heatmap)
-        try {
-          const pixel = makeForecastPixelGrid(preds);
-          if (pixel && pixel.imageDataUrl) {
-            imageDataUrl = pixel.imageDataUrl;
-            bbox = pixel.bbox;
-          }
-        } catch (e) {
-          console.warn("makeForecastPixelGrid failed:", e);
-        }
-
-        // Fallback to heatmap renderer
-        if (!imageDataUrl) {
-          const out = makeForecastHeatmap(preds);
-          if (out && out.imageDataUrl) {
-            imageDataUrl = out.imageDataUrl;
-            bbox = out.bbox;
-          }
-        }
-
-        // Ultimately fallback to transparent image + overall bbox
-        if (!imageDataUrl) {
-          imageDataUrl = makeEmptyImage();
-          bbox = overallBbox;
-        }
-
-        forecastData.push({
-          hour: h,
-          imageDataUrl,
-          bbox,
-          predictions: preds,
-        });
-      }
-
       // Hide other prediction layers while showing forecast
       prevLayersRef.current = layers;
       setLayers((prev) => ({
@@ -296,10 +326,84 @@ function App() {
         "MODIS Hotspots": false,
       }));
 
-      setForecastPredictions(forecastData);
+      // Start with empty frames and stream-increment
+      setForecastPredictions([]);
       setForecastFrame(0);
-      // Start paused so user can inspect frame 0
-      setIsPlaying(false);
+      setIsPlaying(false); // we will advance frame to latest on each step to preview progression
+
+      // Close any previous stream
+      if (forecastStreamRef.current) {
+        try { forecastStreamRef.current.close(); } catch {}
+        forecastStreamRef.current = null;
+      }
+      burnedCellsRef.current = new Set();
+
+      const framesRef = { current: [] };
+      forecastStreamRef.current = streamSpreadForecast({
+        clusterPoints: seeds,
+        forecastHours,
+        modelName: "logreg",
+        spreadThreshold: 0.6,
+        fastMode: true,
+        maxCandidatesPerStep: 200,
+        maxCells: 3000,
+        onLog: (msg) => {
+          if (msg && (msg.step_ms !== undefined || msg.eta_ms !== undefined)) {
+            const s = msg;
+            console.log(`[SSE] step ${s.step ?? '?'}: ${s.step_ms ?? '?'} ms | avg ${s.avg_ms ?? '?'} ms | ETA ${(s.eta_ms/1000).toFixed(1)}s for ${s.remaining_steps ?? '?'} steps`);
+          } else {
+            console.log("[SSE:log]", msg);
+          }
+        },
+        onStep: (payload) => {
+          const h = Number(payload?.time ?? 0);
+          const preds = Array.isArray(payload?.predictions) ? payload.predictions : [];
+          // Track burned cells for greyscale fill
+          for (const p of preds) {
+            if (Number(p?.t_burn) >= 2) {
+              const cell = snapToGrid(Number(p.lat), Number(p.lon));
+              burnedCellsRef.current.add(`${cell.row},${cell.col}`);
+            }
+          }
+          let imageDataUrl = null;
+          let bbox = null;
+          try {
+            const pixel = makeForecastPixelGrid(preds, { burnedCells: burnedCellsRef.current });
+            if (pixel && pixel.imageDataUrl) {
+              imageDataUrl = pixel.imageDataUrl;
+              bbox = pixel.bbox;
+            }
+          } catch (e) {
+            console.warn("makeForecastPixelGrid failed:", e);
+          }
+          if (!imageDataUrl) {
+            const out = makeForecastHeatmap(preds); // fallback (no burned overlay)
+            if (out?.imageDataUrl) {
+              imageDataUrl = out.imageDataUrl;
+              bbox = out.bbox;
+            }
+          }
+          if (!imageDataUrl) {
+            imageDataUrl = makeEmptyImage();
+            bbox = overallBbox;
+          }
+          // Append or replace frame at hour h
+          const next = framesRef.current.slice();
+          next[h] = { hour: h, imageDataUrl, bbox, predictions: preds };
+          // Compact to remove holes in case of out-of-order events
+          const compact = next.filter(Boolean);
+          framesRef.current = compact;
+          setForecastPredictions(compact);
+          setForecastFrame(compact.length - 1); // preview latest step as it arrives
+        },
+        onDone: () => {
+          console.log("[SSE] done");
+          forecastStreamRef.current = null;
+        },
+        onError: (e) => {
+          console.warn("[SSE] error", e);
+        },
+      });
     } catch (error) {
       console.error("Forecast generation failed:", error);
       window.alert("Failed to generate forecast. Please try again.");
@@ -450,8 +554,8 @@ function App() {
       setForecastFrame((frame) => {
         const nextFrame = frame + 1;
         if (nextFrame >= forecastPredictions.length) {
-          // End of animation - stop and restore layers
-          handleForecastStop();
+          // Pause at last frame; keep overlay visible
+          setIsPlaying(false);
           return frame; // stay at last valid frame
         }
         return nextFrame;
@@ -483,9 +587,22 @@ function App() {
     setForecastPredictions(null);
     setForecastFrame(0);
 
+    // Close live stream if active
+    if (forecastStreamRef.current) {
+      try { forecastStreamRef.current.close(); } catch {}
+      forecastStreamRef.current = null;
+    }
+
     if (prevLayersRef.current) {
       setLayers(prevLayersRef.current);
       prevLayersRef.current = null;
+    }
+
+    // Remove initial-state overlay, if any
+    const globus = globeRef.current && globeRef.current.getGlobus && globeRef.current.getGlobus();
+    if (initialStateLayerRef.current && globus?.planet) {
+      try { globus.planet.removeLayer(initialStateLayerRef.current); } catch {}
+      initialStateLayerRef.current = null;
     }
   };
 
@@ -598,7 +715,6 @@ function App() {
                   setPopupPosition(null);
                 }}
                 onRunForecast={handleRunForecast}
-                onRunPointPrediction={handleRunPointPredictionNeighbors}
               />
             )}
 
@@ -692,8 +808,7 @@ function App() {
         </div>
       </div>
 
-      {/* Batch fire_inputs processor */}
-      <FireInputsProcessor />
+      {/* Batch fire_inputs processor removed per request */}
 
       {statusMessage && (
         <div

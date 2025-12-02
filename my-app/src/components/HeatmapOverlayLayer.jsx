@@ -30,12 +30,11 @@ export default function HeatmapOverlayLayer({ globeRef, startDate, endDate }) {
           return;
         }
 
-        // Build date filter: use provided date range
+        // Apply date filter using created_at with confidence = 100
         const startISO = new Date(startDate).toISOString().replace('T', ' ').substring(0, 19);
         const endISO = new Date(endDate).toISOString().replace('T', ' ').substring(0, 19);
-
-        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fires?select=latitude,longitude&datetime=gte.${startISO}&datetime=lt.${endISO}`;
-        console.log("HeatmapOverlay: Fetching from", url);
+        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fire_inputs?select=latitude,longitude,confidence,created_at&confidence=gte.90&created_at=gte.${startISO}&created_at=lt.${endISO}`;
+        console.log("HeatmapOverlay: Fetching fire_inputs (confidence>=90, date-filtered) from", url);
         const res = await fetch(url, {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -48,7 +47,7 @@ export default function HeatmapOverlayLayer({ globeRef, startDate, endDate }) {
           throw new Error(`Supabase fetch failed: ${res.status} ${res.statusText}`);
         }
         const rows = await res.json();
-        console.log("HeatmapOverlay: Received rows", rows.length);
+        console.log("HeatmapOverlay: Received rows from fire_inputs", rows.length);
         const pts = rows
           .map((r) => {
             const lat = parseFloat(r.latitude);
@@ -57,7 +56,7 @@ export default function HeatmapOverlayLayer({ globeRef, startDate, endDate }) {
           })
           .filter(Boolean);
         
-        console.log(`HeatmapOverlay: Loaded ${pts.length} points for ${startISO}`);
+        console.log(`HeatmapOverlay: Loaded ${pts.length} fire_inputs points (conf>=90) for ${startISO}`);
         if (!pts.length || cancelled) return;
 
 

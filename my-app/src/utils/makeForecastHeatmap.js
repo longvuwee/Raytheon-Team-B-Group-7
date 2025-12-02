@@ -49,7 +49,12 @@ export default function makeForecastHeatmap(predictions, width = 800, height = 6
   // Draw prediction points with intensity based on spread probability
   predictions.forEach(pred => {
     const [x, y] = toPixel(pred.lon, pred.lat);
-    const probability = pred.spread_probability || 0;
+    // Inject a small random factor to emulate more stochastic spread
+    // Random noise in range [-noiseAmp, +noiseAmp], clamped to [0,1]
+    const baseProb = pred.spread_probability || 0;
+    const noiseAmp = 0.15; // tweak for more/less randomness
+    const jitter = (Math.random() * 2 - 1) * noiseAmp;
+    const probability = Math.min(1, Math.max(0, baseProb + jitter));
 
     // Gradient based on probability
     const gradient = ctx.createRadialGradient(x, y, 0, x, y, 40);

@@ -26,7 +26,8 @@ function getLon(pred) {
   return pred.lon ?? pred.longitude ?? pred.longitude ?? null;
 }
 
-export default function makeForecastPixelGrid(predictions = []) {
+export default function makeForecastPixelGrid(predictions = [], options = {}) {
+  const burnedCells = options && options.burnedCells ? options.burnedCells : null; // Set of "row,col"
   if (!predictions || predictions.length === 0) return { imageDataUrl: null, bbox: null };
 
   // Map each prediction into a block row/col and keep max probability per cell
@@ -48,6 +49,19 @@ export default function makeForecastPixelGrid(predictions = []) {
     if (row > maxRow) maxRow = row;
     if (col < minCol) minCol = col;
     if (col > maxCol) maxCol = col;
+  }
+
+  // Extend extents to include burned cells so bbox covers them
+  if (burnedCells && burnedCells.size) {
+    for (const key of burnedCells) {
+      const [rStr, cStr] = key.split(",");
+      const r = Number(rStr), c = Number(cStr);
+      if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
+      if (r < minRow) minRow = r;
+      if (r > maxRow) maxRow = r;
+      if (c < minCol) minCol = c;
+      if (c > maxCol) maxCol = c;
+    }
   }
 
   if (cells.size === 0) return { imageDataUrl: null, bbox: null };
@@ -79,13 +93,28 @@ export default function makeForecastPixelGrid(predictions = []) {
     return `rgba(255,230,122,${a * 0.8})`;                // pale yellow
   }
 
-  // Draw cells. Y axis: rows increase with latitude, so draw with top = maxRow
+  // Draw: first burned cells (grey), then active/burning (colored)
+  const drawCell = (r, c, style) => {
+    const x = (c - minCol) * cellPx;
+    const y = (maxRow - r) * cellPx;
+    ctx.fillStyle = style;
+    ctx.fillRect(x, y, cellPx, cellPx);
+  };
+
+  if (burnedCells && burnedCells.size) {
+    const grey = 'rgba(96,96,96,0.8)';
+    for (const key of burnedCells) {
+      const [rStr, cStr] = key.split(",");
+      const r = Number(rStr), c = Number(cStr);
+      if (!Number.isFinite(r) || !Number.isFinite(c)) continue;
+      drawCell(r, c, grey);
+    }
+  }
+
+  // Y axis: rows increase with latitude, so draw with top = maxRow
   for (const entry of cells.values()) {
     const { row: r, col: c, prob } = entry;
-    const x = (c - minCol) * cellPx;
-    const y = (maxRow - r) * cellPx; // invert rows for canvas Y
-    ctx.fillStyle = colorForProb(prob);
-    ctx.fillRect(x, y, cellPx, cellPx);
+    drawCell(r, c, colorForProb(prob));
   }
 
   // Compute bbox: use corners derived from outer block centers minus/plus half cells

@@ -5,7 +5,7 @@ export default function ClusterPopup({
   cluster, 
   position, 
   onClose, 
-  onRunForecast 
+  onRunForecast
 }) {
   const [forecastHours, setForecastHours] = useState(24);
   const [isLoading, setIsLoading] = useState(false);
@@ -91,14 +91,13 @@ export default function ClusterPopup({
             </span>
           </div>
           <div className="stat">
-            <span className="label">Point Time:</span>
+            <span className="label">Fire Date:</span>
             <span className="value">
-              {formatDateTime(cluster?.clickedPoint?.datetime || cluster?.points?.[0]?.datetime)}
+              {(cluster.fireDate) || (() => {
+                const dt = cluster?.clickedPoint?.created_at || cluster?.points?.[0]?.created_at;
+                try { return dt ? new Date(dt).toISOString().split('T')[0] : '—'; } catch { return String(dt || '—'); }
+              })()}
             </span>
-          </div>
-          <div className="stat">
-            <span className="label">Time Period:</span>
-            <span className="value">{cluster.dateRange}</span>
           </div>
         </div>
         

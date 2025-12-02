@@ -29,6 +29,55 @@ export async function fetchRecentFireInputs(limit = 200) {
   return data || [];
 }
 
+// Fetch the nearest fire_inputs row to a given lat/lon within a bounding box.
+// Falls back to the most recent row if none found in the box.
+export async function fetchNearestFireInput(lat, lon, { marginDeg = 0.25, limit = 200 } = {}) {
+  const latMin = Number(lat) - marginDeg;
+  const latMax = Number(lat) + marginDeg;
+  const lonMin = Number(lon) - marginDeg;
+  const lonMax = Number(lon) + marginDeg;
+
+  // Try to filter by bounding box and take the most recent N, then pick nearest in JS
+  const { data, error } = await supabase
+    .from('fire_inputs')
+    .select(
+      `id, input_id, model, latitude, longitude, brightness, bright_t31, confidence, daynight,
+       elevation, slope, aspect, temp, humidity, wind_speed, precip, month, processed, processed_at,
+       block_id, block_row, block_col, created_at`
+    )
+    .gte('latitude', latMin)
+    .lte('latitude', latMax)
+    .gte('longitude', lonMin)
+    .lte('longitude', lonMax)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    console.warn('[fireInputsApi] fetchNearestFireInput bbox query failed, falling back:', error);
+    // Fallback to most recent if bbox query fails
+    const recent = await fetchRecentFireInputs(1);
+    return recent?.[0] || null;
+  }
+
+  const rows = data || [];
+  if (rows.length === 0) {
+    const recent = await fetchRecentFireInputs(1);
+    return recent?.[0] || null;
+  }
+
+  // Choose nearest by squared distance
+  let best = rows[0];
+  let bestD2 = Number.POSITIVE_INFINITY;
+  for (const r of rows) {
+    const d2 = (Number(r.latitude) - lat) ** 2 + (Number(r.longitude) - lon) ** 2;
+    if (d2 < bestD2) {
+      best = r;
+      bestD2 = d2;
+    }
+  }
+  return best;
+}
+
 export async function markProcessed(row, status = 'ok', responseObj = null) {
   const updates = {
     processed: true,

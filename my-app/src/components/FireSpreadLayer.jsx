@@ -25,6 +25,7 @@ export default function FireSpreadLayer({
     layersRef.current = [];
 
     // Create layers for each time step
+    console.log("[FireSpreadLayer] rebuilding layers:", predictions.length, "frames; currentFrame=", currentFrame);
     predictions.forEach((predictionData, index) => {
       if (!predictionData.imageDataUrl || !predictionData.bbox) return;
 
@@ -60,6 +61,7 @@ export default function FireSpreadLayer({
 
   // Update visibility based on current frame
   useEffect(() => {
+    console.log("[FireSpreadLayer] set currentFrame:", currentFrame, "/", layersRef.current.length);
     layersRef.current.forEach((layer, index) => {
       layer.setVisibility(index === currentFrame);
     });
