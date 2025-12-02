@@ -99,43 +99,85 @@ def snap_to_grid(lat: float, lon: float) -> Block:
     return Block(block_id=block_id, row=row, col=col, center_lat=center_lat, center_lon=center_lon)
 
 
-SPREAD_THRESHOLD = 0.75
+BASE_SPREAD_THRESHOLD = 0.75  # Starting threshold at hour 0
+THRESHOLD_DECAY_RATE = 0.40   # Reduces threshold by 40% by final hour (0.75 -> 0.45)
+NEIGHBOR_THRESHOLD_BONUS = 0.05  # -5% threshold per burning neighbor
+MIN_THRESHOLD = 0.20  # Minimum threshold regardless of decay/neighbors
+EXPOSURE_IGNITION_THRESHOLD = 1.0  # Accumulated exposure needed for auto-ignition
 T_MAX = 12
 
 
-def update_timeline(old_T: int, old_T_burn: int, prob: float, can_burn: bool) -> Tuple[int, int]:
+def update_timeline(
+    old_T: int, 
+    old_T_burn: int, 
+    prob: float, 
+    can_burn: bool,
+    time_step: int = 0,
+    time_steps: int = 12,
+    burning_neighbors: int = 0,
+    exposure: float = 0.0
+) -> Tuple[int, int, float]:
     """
-    Timeline logic:
+    Enhanced timeline logic with dynamic threshold and exposure tracking.
+    
+    Features:
+      - Dynamic threshold: Decreases over time (0.75 -> 0.45 over 12 hours)
+      - Neighbor bonus: Lower threshold for cells with many burning neighbors
+      - Exposure accumulation: Cells repeatedly exposed to fire build up exposure
+      - Persistent burning: Once ignited, cells burn for full T_MAX duration
+    
+    Returns:
+      (new_T, new_T_burn, new_exposure)
+    
+    States:
       - T_burn = 0: no fire
       - T_burn = 1: burning
       - T_burn = 2: burned out
       - T_burn = 3: cannot burn
     """
     if not can_burn:
-        return 0, 3  # cannot burn
+        return 0, 3, exposure
 
-    # Once burned out or cannot burn, we don't change
+    # Once burned out or cannot burn, state is permanent
     if old_T_burn in (2, 3):
-        return old_T, old_T_burn
+        return old_T, old_T_burn, exposure
 
-    # Fire spreads above threshold
-    if prob >= SPREAD_THRESHOLD:
+    # Calculate dynamic threshold that decreases over time
+    time_factor = (time_step / max(time_steps - 1, 1)) * THRESHOLD_DECAY_RATE
+    dynamic_threshold = BASE_SPREAD_THRESHOLD * (1.0 - time_factor)
+    
+    # Apply neighbor bonus: More burning neighbors = lower threshold
+    neighbor_bonus = burning_neighbors * NEIGHBOR_THRESHOLD_BONUS
+    effective_threshold = max(dynamic_threshold - neighbor_bonus, MIN_THRESHOLD)
+    
+    # Accumulate exposure from this prediction
+    new_exposure = exposure + prob
+    
+    # Check ignition conditions
+    should_ignite = (prob >= effective_threshold) or (new_exposure >= EXPOSURE_IGNITION_THRESHOLD)
+    
+    if should_ignite:
         if old_T_burn == 0:
-            # first ignition
-            return 0, 1
+            # First ignition
+            return 0, 1, new_exposure
+        if old_T_burn == 1:
+            # Continue burning
+            new_T = min(old_T + 1, T_MAX)
+            if new_T >= T_MAX:
+                # Finished burning
+                return new_T, 2, new_exposure
+            return new_T, 1, new_exposure
+        # Fallback for unexpected state
+        return 0, 1, new_exposure
+    else:
+        # Below threshold: Keep burning if already burning (don't stop)
         if old_T_burn == 1:
             new_T = min(old_T + 1, T_MAX)
             if new_T >= T_MAX:
-                # finished burning
-                return new_T, 2
-            return new_T, 1
-        # Fallback
-        return 0, 1
-    else:
-        # Below threshold stops burning if it was burning
-        if old_T_burn == 1:
-            return 0, 0
-        return old_T, old_T_burn
+                return new_T, 2, new_exposure
+            return new_T, 1, new_exposure
+        # Not burning and doesn't ignite
+        return old_T, old_T_burn, new_exposure
 
 
 @app.route("/health", methods=["GET"])
@@ -840,7 +882,7 @@ def predict():
                         features.get("precip"),
                         int(features.get("month")),
                         inst_prob,
-                        "Spread" if inst_prob >= SPREAD_THRESHOLD else "No Spread",
+                        "Spread" if inst_prob >= BASE_SPREAD_THRESHOLD else "No Spread",
                         new_T,
                         new_T_burn,
                         block.block_id,
@@ -906,7 +948,7 @@ def predict():
                 "error": f"Database error: {type(e).__name__}: {e}",
                 "model": model_name,
                 "instant_spread_probability": inst_prob,
-                "prediction": "Spread" if inst_prob >= SPREAD_THRESHOLD else "No Spread",
+                "prediction": "Spread" if inst_prob >= BASE_SPREAD_THRESHOLD else "No Spread",
                 "T": new_T,
                 "T_burn": new_T_burn,
                 "block_id": block.block_id,
@@ -1108,6 +1150,9 @@ def predict_spread_animation():
                 use_deterministic_seed=True
             )            
 
+            # Get existing exposure for this cell
+            old_exposure = blocks[nb_id].get("exposure", 0.0) if nb_id in blocks else 0.0
+            
             # Optional: Log first few predictions for debugging
             if t == 0 and len(predictions_out) < 3:
                 print(f"DEBUG: Block {nb_id} at t={t}")
@@ -1118,18 +1163,42 @@ def predict_spread_animation():
                 pred = predict_fire_spread(feat, model_name=model_name)
                 prob = float(pred.get("spread_probability", 0.0))
                 
-                # Log prediction result
+                # Calculate dynamic threshold for this time step
+                time_factor = (t / max(time_steps - 1, 1)) * THRESHOLD_DECAY_RATE
+                dynamic_threshold = BASE_SPREAD_THRESHOLD * (1.0 - time_factor)
+                neighbor_bonus = meta.get('burning_neighbors', 0) * NEIGHBOR_THRESHOLD_BONUS
+                effective_threshold = max(dynamic_threshold - neighbor_bonus, MIN_THRESHOLD)
+                
+                # Log prediction result with dynamic threshold
                 if t == 0 and len(predictions_out) < 3:
-                    print(f"  → Prediction: {prob:.4f}\n")
+                    print(f"  → Prediction: {prob:.4f} (dynamic threshold={effective_threshold:.3f})\n")
             except Exception as e:
                 if t == 0 and len(predictions_out) < 3:
                     print(f"  → Error: {e}\n")
                 prob = 0.0
 
-            # Update timeline rules (use can_burn True)
-            new_T, new_T_burn = update_timeline(old_T, old_T_burn, prob, True)
+            # Update timeline with enhanced logic
+            new_T, new_T_burn, new_exposure = update_timeline(
+                old_T, 
+                old_T_burn, 
+                prob, 
+                True,
+                time_step=t,
+                time_steps=time_steps,
+                burning_neighbors=meta.get('burning_neighbors', 0),
+                exposure=old_exposure
+            )
+            
+            # Debug: Log spread decisions for first time step
+            if t == 0 and len(predictions_out) < 5:
+                time_factor = (t / max(time_steps - 1, 1)) * THRESHOLD_DECAY_RATE
+                dynamic_threshold = BASE_SPREAD_THRESHOLD * (1.0 - time_factor)
+                neighbor_bonus = meta.get('burning_neighbors', 0) * NEIGHBOR_THRESHOLD_BONUS
+                effective_threshold = max(dynamic_threshold - neighbor_bonus, MIN_THRESHOLD)
+                status = "SPREAD" if (prob >= effective_threshold or new_exposure >= EXPOSURE_IGNITION_THRESHOLD) else "NO SPREAD"
+                print(f"    Block {nb_id}: prob={prob:.3f}, threshold={effective_threshold:.3f}, exposure={new_exposure:.3f}, old_T_burn={old_T_burn} → new_T_burn={new_T_burn} ({status})")
 
-            # Update block state (in-memory)
+            # Update block state (in-memory) with exposure tracking
             blocks[nb_id] = {
                 "row": meta["row"],
                 "col": meta["col"],
@@ -1138,6 +1207,7 @@ def predict_spread_animation():
                 "T": new_T,
                 "T_burn": new_T_burn,
                 "last_prob": prob,
+                "exposure": new_exposure,
             }
 
             # Record this prediction for the current time-step
@@ -1149,10 +1219,14 @@ def predict_spread_animation():
                 "block_id": nb_id,
             })
         
-        # Log progress every 5 steps
+        # Log progress every 5 steps with threshold info
         step_elapsed = time.time() - step_start
+        burning_count = sum(1 for b in blocks.values() if b.get('T_burn') == 1)
         if t % 5 == 0 or t == time_steps - 1:
-            print(f"  Step {t}/{time_steps}: {len(candidates)} candidates, {len(blocks)} total blocks, {step_elapsed:.2f}s")
+            # Calculate effective threshold for this time step
+            time_factor = (t / max(time_steps - 1, 1)) * THRESHOLD_DECAY_RATE
+            current_threshold = BASE_SPREAD_THRESHOLD * (1.0 - time_factor)
+            print(f"  Step {t}/{time_steps}: {len(candidates)} candidates, {len(blocks)} total blocks, {burning_count} burning, threshold={current_threshold:.3f}, {step_elapsed:.2f}s")
 
             # Persist per-cell state if DB available
             if cur is not None:

@@ -6,6 +6,8 @@ import React, {
   useEffect,
 } from "react";
 
+import { LonLat } from "@openglobus/og";
+
 import "./index.css";
 import "./App.css";
 
@@ -320,6 +322,31 @@ function App() {
       setForecastFrame(0);
       // Start paused so user can inspect frame 0
       setIsPlaying(false);
+      
+      // Fly camera to the prediction area
+      if (forecastData.length > 0 && forecastData[0].bbox && globeRef.current) {
+        const globus = globeRef.current.getGlobus();
+        if (globus && globus.planet) {
+          const [minLon, minLat, maxLon, maxLat] = forecastData[0].bbox;
+          const centerLat = (minLat + maxLat) / 2;
+          const centerLon = (minLon + maxLon) / 2;
+          const altitude = 500000; // 500km altitude for good view
+          
+          console.log(`Flying camera to prediction area: lat=${centerLat.toFixed(4)}, lon=${centerLon.toFixed(4)}`);
+          
+          globus.planet.camera.flyLonLat(
+            new LonLat(centerLon, centerLat),
+            null,
+            null,
+            altitude,
+            null,
+            null,
+            2000 // 2 second flight duration
+          );
+        } else {
+          console.warn("Globe or planet not ready for camera flight");
+        }
+      }
       
       console.log("Forecast setup complete. Predictions should now be visible on globe.");
     } catch (error) {
