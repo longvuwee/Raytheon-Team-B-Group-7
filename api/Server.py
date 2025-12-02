@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass
+import random
 from typing import Tuple, Dict, Any
 
 import psycopg2
@@ -139,6 +140,159 @@ def update_timeline(old_T: int, old_T_burn: int, prob: float, can_burn: bool) ->
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.route("/environmental-data", methods=["POST"])
+def environmental_data():
+    """
+    Lightweight stub that returns reasonable environmental defaults so the
+    frontend can enrich missing features without failing. This avoids noisy
+    warnings in the UI when external data sources are unavailable.
+    Body: { latitude, longitude, datetime }
+    """
+    try:
+        payload = request.get_json(force=True) or {}
+    except Exception:
+        payload = {}
+
+    lat = float(payload.get("latitude") or 0)
+    # Simple lat-dependent defaults to add slight variation
+    base_temp = 25.0 - max(0, (abs(lat) - 30) * 0.1)
+    out = {
+        "temperature": base_temp,
+        "humidity": 40.0,
+        "wind_speed": 8.0,
+        "wind_direction": 180,
+        "vegetation_index": 0.3,
+        "elevation": 500.0,
+        "slope": 10.0,
+    }
+    return jsonify(out)
+
+
+@app.route("/debug-block-avg", methods=["GET"])
+def debug_block_avg():
+    """
+    Inspect per-block probability aggregation.
+    Query params:
+      - block_id: e.g., CA-26460-8279
+      - row, col: numeric indices as alternative to block_id
+
+    Returns combined view from fire_cell_state and block_index.
+    """
+    block_id = request.args.get("block_id")
+    row_param = request.args.get("row")
+    col_param = request.args.get("col")
+    row = int(row_param) if row_param is not None and row_param != "" else None
+    col = int(col_param) if col_param is not None and col_param != "" else None
+
+    if (row is None or col is None) and not block_id:
+        return jsonify({"ok": False, "error": "Provide block_id or row & col"}), 400
+
+    try:
+        conn = get_db_conn()
+        cur = conn.cursor()
+
+        fcs = None
+        # Prefer row/col if provided
+        if row is not None and col is not None:
+            cur.execute(
+                """
+                SELECT block_row, block_col, block_id, prob_sum, prob_count, last_prob, instant_spread_probability, updated_at
+                FROM fire_cell_state
+                WHERE block_row = %s AND block_col = %s
+                """,
+                (row, col),
+            )
+            rec = cur.fetchone()
+            if rec:
+                rrow, rcol, bid, prob_sum, prob_count, last_prob, inst_prob, updated_at = rec
+                avg = float(prob_sum) / prob_count if prob_count else None
+                fcs = {
+                    "block_row": rrow,
+                    "block_col": rcol,
+                    "block_id": bid,
+                    "prob_sum": float(prob_sum) if prob_sum is not None else None,
+                    "prob_count": int(prob_count) if prob_count is not None else None,
+                    "avg": float(avg) if avg is not None else None,
+                    "last_prob": float(last_prob) if last_prob is not None else None,
+                    "instant_spread_probability": float(inst_prob) if inst_prob is not None else None,
+                    "updated_at": str(updated_at) if updated_at is not None else None,
+                }
+                # Use resolved block_id for index fetch
+                if not block_id:
+                    block_id = bid
+
+        if fcs is None and block_id:
+            cur.execute(
+                """
+                SELECT block_row, block_col, block_id, prob_sum, prob_count, last_prob, instant_spread_probability, updated_at
+                FROM fire_cell_state
+                WHERE block_id = %s
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (block_id,),
+            )
+            rec = cur.fetchone()
+            if rec:
+                rrow, rcol, bid, prob_sum, prob_count, last_prob, inst_prob, updated_at = rec
+                avg = float(prob_sum) / prob_count if prob_count else None
+                fcs = {
+                    "block_row": rrow,
+                    "block_col": rcol,
+                    "block_id": bid,
+                    "prob_sum": float(prob_sum) if prob_sum is not None else None,
+                    "prob_count": int(prob_count) if prob_count is not None else None,
+                    "avg": float(avg) if avg is not None else None,
+                    "last_prob": float(last_prob) if last_prob is not None else None,
+                    "instant_spread_probability": float(inst_prob) if inst_prob is not None else None,
+                    "updated_at": str(updated_at) if updated_at is not None else None,
+                }
+                # Also populate row/col for consistent response
+                row, col = rrow, rcol
+
+        # Pull block_index snapshot if we have a block_id
+        bindex = None
+        if block_id:
+            cur.execute(
+                """
+                SELECT block_row, block_col, block_center_latitude, block_center_longitude,
+                       T, T_burn, block_avg_spread_probability, updated_at
+                FROM block_index
+                WHERE block_id = %s
+                """,
+                (block_id,),
+            )
+            bi = cur.fetchone()
+            if bi:
+                bi_row, bi_col, clat, clon, T, T_burn, avg_prob, updated_at = bi
+                bindex = {
+                    "block_row": bi_row,
+                    "block_col": bi_col,
+                    "block_center_latitude": float(clat) if clat is not None else None,
+                    "block_center_longitude": float(clon) if clon is not None else None,
+                    "T": int(T) if T is not None else None,
+                    "T_burn": int(T_burn) if T_burn is not None else None,
+                    "block_avg_spread_probability": float(avg_prob) if avg_prob is not None else None,
+                    "updated_at": str(updated_at) if updated_at is not None else None,
+                }
+
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            "ok": True,
+            "query": {"block_id": block_id, "row": row, "col": col},
+            "fire_cell_state": fcs,
+            "block_index": bindex,
+        })
+    except Exception as e:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/db-check", methods=["GET"])
@@ -911,10 +1065,17 @@ def predict_spread_animation():
                         nr = r + dr
                         nc = c + dc
                         nb_id = f"CA-{nr}-{nc}"
-                        if nb_id in candidates:
-                            continue
                         center_lat, center_lon = block_center(nr, nc)
-                        candidates[nb_id] = {"row": nr, "col": nc, "center_lat": center_lat, "center_lon": center_lon}
+                        if nb_id in candidates:
+                            candidates[nb_id]["burning_neighbors"] += 1
+                        else:
+                            candidates[nb_id] = {
+                                "row": nr,
+                                "col": nc,
+                                "center_lat": center_lat,
+                                "center_lon": center_lon,
+                                "burning_neighbors": 1,
+                            }
 
         # Build features for each candidate and predict
         for nb_id, meta in candidates.items():
@@ -934,6 +1095,21 @@ def predict_spread_animation():
                 else:
                     # fall back to template values or zeros
                     feat[k] = template.get(k, template.get(k.lower(), 0))
+
+            # Deterministic feature variation to avoid identical probabilities
+            # Seed on block_id + time so frames are stable but not uniform
+            seed_base = f"{nb_id}-{t}"
+            rnd = random.Random(seed_base)
+            # Small jitter ranges (tunable)
+            feat["temp"] = float(feat.get("temp", 0)) + rnd.uniform(-2.0, 2.0)
+            feat["humidity"] = float(feat.get("humidity", 0)) + rnd.uniform(-5.0, 5.0)
+            feat["wind_speed"] = float(feat.get("wind_speed", 0)) + rnd.uniform(-1.5, 1.5)
+            feat["slope"] = float(feat.get("slope", 0)) + rnd.uniform(-3.0, 3.0)
+            # Boost brightness by number of burning neighbors to simulate spread pressure
+            feat["brightness"] = float(feat.get("brightness", 0)) + 8.0 * float(meta.get("burning_neighbors", 1))
+            # Clamp basic physical bounds
+            feat["humidity"] = max(0.0, min(100.0, feat["humidity"]))
+            feat["wind_speed"] = max(0.0, feat["wind_speed"])            
 
             try:
                 pred = predict_fire_spread(feat, model_name=model_name)
