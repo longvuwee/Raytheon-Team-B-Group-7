@@ -1,8 +1,9 @@
+import { useState } from "react";
 import CollapsiblePanel from "./CollapsiblePanel";
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { DatePicker } from '@mui/x-date-pickers/DatePicker';
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import dayjs from 'dayjs';
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import dayjs from "dayjs";
 
 export default function LeftInfoPanel({
   offsetLeft = 0,
@@ -33,8 +34,40 @@ export default function LeftInfoPanel({
     });
   };
 
+  // Local state for weather layer toggles
+  const [weatherLayers, setWeatherLayers] = useState({
+    Clouds: true,
+    Precipitation: false,
+    Temperature: false,
+    "Wind Speed": false,
+  });
+
+  const applyWeatherVisibility = (next) => {
+    const wl = window.ogWeatherLayers;
+    if (!wl) return;
+    if ("Clouds" in next && wl.clouds) {
+      wl.clouds.setVisibility(next["Clouds"]);
+    }
+    if ("Precipitation" in next && wl.precip) {
+      wl.precip.setVisibility(next["Precipitation"]);
+    }
+    if ("Temperature" in next && wl.temp) {
+      wl.temp.setVisibility(next["Temperature"]);
+    }
+    if ("Wind Speed" in next && wl.wind) {
+      wl.wind.setVisibility(next["Wind Speed"]);
+    }
+  };
+
+  const handleWeatherChange = (key) => {
+    setWeatherLayers((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      applyWeatherVisibility(next);
+      return next;
+    });
+  };
+
   const handleStartDateChange = (newValue) => {
-    // Only update if the date is valid
     if (newValue && newValue.isValid()) {
       const date = newValue.toDate();
       date.setHours(0, 0, 0, 0);
@@ -43,7 +76,6 @@ export default function LeftInfoPanel({
   };
 
   const handleEndDateChange = (newValue) => {
-    // Only update if the date is valid
     if (newValue && newValue.isValid()) {
       const date = newValue.toDate();
       date.setHours(23, 59, 59, 999);
@@ -73,9 +105,9 @@ export default function LeftInfoPanel({
                 format="MM/DD/YYYY"
                 slotProps={{
                   textField: {
-                    className: 'mui-date-picker',
-                    placeholder: 'MM/DD/YYYY',
-                  }
+                    className: "mui-date-picker",
+                    placeholder: "MM/DD/YYYY",
+                  },
                 }}
               />
             </div>
@@ -88,20 +120,21 @@ export default function LeftInfoPanel({
                 format="MM/DD/YYYY"
                 slotProps={{
                   textField: {
-                    className: 'mui-date-picker',
-                    placeholder: 'MM/DD/YYYY',
-                  }
+                    className: "mui-date-picker",
+                    placeholder: "MM/DD/YYYY",
+                  },
                 }}
               />
             </div>
           </div>
         </LocalizationProvider>
         <p className="field-helper">
-          Select a date range to visualize fire data. Use the timeline slider to navigate hours within this range.
+          Select a date range to visualize fire data. Use the timeline slider to
+          navigate hours within this range.
         </p>
       </section>
 
-      {/* === Base Map as OSM / SAT / Topo buttons === */}
+      {/* === Base Map as OSM / SAT buttons === */}
       <section className="panel-section">
         <label className="field-label">Base Map</label>
         <div className="base-button-row">
@@ -138,7 +171,7 @@ export default function LeftInfoPanel({
         </p>
       </section>
 
-      {/* === Layer Toggles === */}
+      {/* === Wildfire Layer Toggles === */}
       <section className="panel-section">
         <label className="field-label">Map Layers</label>
         <div className="field-box">
@@ -155,6 +188,26 @@ export default function LeftInfoPanel({
         </div>
         <p className="field-helper">
           Enable or disable specific wildfire data layers.
+        </p>
+      </section>
+
+      {/* === Weather Layers === */}
+      <section className="panel-section">
+        <label className="field-label">Weather Layers</label>
+        <div className="field-box">
+          {Object.keys(weatherLayers).map((key) => (
+            <label key={key} className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={weatherLayers[key]}
+                onChange={() => handleWeatherChange(key)}
+              />
+              <span>{key}</span>
+            </label>
+          ))}
+        </div>
+        <p className="field-helper">
+          Overlay live weather context such as clouds, precipitation, and wind.
         </p>
       </section>
     </CollapsiblePanel>
