@@ -25,11 +25,15 @@ def main():
     print("Loading unified training dataset...")
     df = pd.read_csv('api/models/unified_training_dataset.csv')
     
-    # Try to load the enriched weather version if it exists
+    # Use enriched weather version with brightness-based labels for high predictions
     enriched_path = 'outputs/features/fires_with_hist_weather.csv'
     if os.path.exists(enriched_path):
-        print(f"Found enriched weather data at {enriched_path}, using it instead...")
+        print(f"Loading weather-enriched data with brightness labels from {enriched_path}")
         df = pd.read_csv(enriched_path)
+    else:
+        # Fallback to unified training dataset
+        print("Loading unified training dataset...")
+        df = pd.read_csv('api/models/unified_training_dataset.csv')
     
     # Define features matching the model expectations
     feature_cols = [
@@ -121,15 +125,15 @@ def main():
     print(f"Recall: {lr_metrics['recall']:.3f}")
     
     # ===== Train Random Forest with Regularization =====
-    print("\n=== Training Random Forest (Regularized) ===")
+    print("\n=== Training Random Forest ===")
     rf = RandomForestClassifier(
-        n_estimators=250,            # Increased for better learning
-        max_depth=12,                # Slightly deeper to capture complexity
-        min_samples_split=15,        # Balanced: not too restrictive
-        min_samples_leaf=8,          # Balanced: allows finer decisions
-        max_features='sqrt',         # Reduce feature correlation
+        n_estimators=250,
+        max_depth=None,
+        min_samples_split=2,
+        min_samples_leaf=1,
+        max_features='sqrt',
         random_state=42,
-        class_weight={0: 0.8, 1: 1.2},  # Boost spread class predictions
+        class_weight='balanced',
         n_jobs=-1
     )
     rf.fit(X_train, y_train)
@@ -205,10 +209,6 @@ def main():
         "logistic_regression": lr_metrics,
         "random_forest": rf_metrics,
     }
-    
-    with open(os.path.join(output_dir, "metrics.json"), "w") as f:
-        json.dump(metrics, f, indent=2)
-    
     print(f"Metrics saved to {os.path.join(output_dir, 'metrics.json')}")
     
     print("\n=== Retraining Complete ===")

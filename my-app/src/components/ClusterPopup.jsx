@@ -10,6 +10,7 @@ export default function ClusterPopup({
   const [forecastHours, setForecastHours] = useState(24);
   const [isLoading, setIsLoading] = useState(false);
   const [pointPrediction, setPointPrediction] = useState(null);
+  const [selectedModel, setSelectedModel] = useState('random_forest');
 
   const handleRunForecast = async () => {
     setIsLoading(true);
@@ -31,7 +32,7 @@ export default function ClusterPopup({
       // Ensure an id exists (fallback to timestamp-based id)
       if (!row.id) row.id = `${Date.now()}-${row.latitude}-${row.longitude}`;
 
-      const res = await runPointPrediction(row, 'random_forest');
+      const res = await runPointPrediction(row, selectedModel);
       setPointPrediction(res);
     } catch (err) {
       console.error('Point prediction failed', err);
@@ -106,6 +107,18 @@ export default function ClusterPopup({
               <option value="12">12 hours</option>
               <option value="24">24 hours</option>
               <option value="48">48 hours</option>
+            </select>
+          </label>
+          
+          <label className="forecast-label" style={{ marginTop: 8 }}>
+            Point Prediction Model:
+            <select 
+              value={selectedModel} 
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="forecast-select"
+            >
+              <option value="random_forest">Random Forest</option>
+              <option value="logreg">Logistic Regression</option>
             </select>
           </label>
         </div>

@@ -23,7 +23,7 @@ print("Loading scaler from:", SCALER_PATH)
 print("Loading RF model from:", RF_MODEL_PATH)
 print("Loading LR model from:", LR_MODEL_PATH)
 
-feature_cols = joblib.load(FEATURE_COLS_PATH)   # list of feature names
+feature_cols = joblib.load(FEATURE_COLS_PATH)
 scaler       = joblib.load(SCALER_PATH)
 rf           = joblib.load(RF_MODEL_PATH)
 lr           = joblib.load(LR_MODEL_PATH)
@@ -66,19 +66,16 @@ def predict_fire_spread(features: Dict[str, Any], model_name: str = "random_fore
     m = (model_name or "random_forest").lower()
 
     if m == "random_forest":
-        # IMPORTANT: RF was trained on raw features provided as a DataFrame with names.
-        # Passing a DataFrame avoids repeated sklearn warnings about missing feature names.
         prob = rf.predict_proba(x_df)[0, 1]
         used_model = "random_forest"
 
     elif m in ("logistic_regression", "logreg"):
-        # LR was trained on scaled features. Use the DataFrame with named columns to avoid feature name warnings.
         x_scaled = scaler.transform(x_df)
         prob = lr.predict_proba(x_scaled)[0, 1]
         used_model = "logistic_regression"
 
     else:
-        # Fallback to RF on raw features
+        # Fallback to RF
         prob = rf.predict_proba(x_df)[0, 1]
         used_model = "random_forest"
 
@@ -88,6 +85,15 @@ def predict_fire_spread(features: Dict[str, Any], model_name: str = "random_fore
     }
 
 
+def predict_fire_spread_batch(feature_dicts: list[Dict[str, Any]], model_name: str = "random_forest") -> list[float]:
+    """Vectorized batch prediction.
+    feature_dicts: list of feature dictionaries containing all feature_cols.
+    Returns list of spread probabilities (floats) in the same order.
+    Falls back to per-row zero probability if a failure occurs.
+    """
+    m = (model_name or "random_forest").lower()
+    if not feature_dicts:
+        return []
 def predict_fire_spread_batch(feature_dicts: list[Dict[str, Any]], model_name: str = "random_forest") -> list[float]:
     """Vectorized batch prediction.
     feature_dicts: list of feature dictionaries containing all feature_cols.
