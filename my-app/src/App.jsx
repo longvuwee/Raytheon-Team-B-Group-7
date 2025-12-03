@@ -411,94 +411,7 @@ function App() {
 
   // Removed unused handleRunPointPredictionNeighbors
 
-  // Seed from Supabase fire_inputs as initial state
-  const seedFromFireInputs = async () => {
-    try {
-      const rows = await fetchRecentFireInputs(50);
-      if (!rows || rows.length === 0) {
-        alert("No fire_inputs rows found");
-        return;
-      }
-      const points = rows.map((r) => ({
-        latitude: r.latitude,
-        longitude: r.longitude,
-        brightness: r.brightness,
-        bright_t31: r.bright_t31,
-        confidence: r.confidence,
-        daynight: r.daynight,
-        elevation: r.elevation,
-        slope: r.slope,
-        aspect: r.aspect,
-        temp: r.temp,
-        humidity: r.humidity,
-        wind_speed: r.wind_speed,
-        precip: r.precip,
-        month: r.month,
-      }));
-      const cluster = { points, clickedPoint: points[0] };
-      setSelectedCluster(cluster);
-      setPopupPosition(null);
-      alert(`Seeded ${points.length} points from fire_inputs`);
-    } catch (e) {
-      console.error("Seed from fire_inputs failed:", e);
-      alert("Seed from fire_inputs failed: " + (e?.message || e));
-    }
-  };
 
-  // One-click demo: center camera on recent fire_inputs and run neighbor predictions
-  const runDemo = async () => {
-    try {
-      setStatusMessage("Running demo: fetching seeds...");
-      const rows = await fetchRecentFireInputs(50);
-      if (!rows || rows.length === 0) {
-        alert("No fire_inputs rows available for demo");
-        return;
-      }
-      // Compute centroid of recent rows
-      const lat = rows.reduce((s, r) => s + Number(r.latitude || 0), 0) / rows.length;
-      const lon = rows.reduce((s, r) => s + Number(r.longitude || 0), 0) / rows.length;
-
-      // Pick up to 12 points nearest the centroid to keep simulation focused
-      const withDist = rows.map(r => ({
-        row: r,
-        d2: (Number(r.latitude) - lat) ** 2 + (Number(r.longitude) - lon) ** 2,
-      })).sort((a,b) => a.d2 - b.d2).slice(0, 12).map(x => x.row);
-
-      // Fly the camera
-      const globus = globeRef.current && globeRef.current.getGlobus && globeRef.current.getGlobus();
-      if (globus?.planet?.camera?.flyLonLat) {
-        globus.planet.camera.flyLonLat({ lon, lat, height: 300000 });
-      }
-
-      setStatusMessage("Generating 24h forecast...");
-      // Build a cluster from recent fire_inputs (include features so server template is rich)
-      const points = withDist.map((r) => ({
-        latitude: r.latitude,
-        longitude: r.longitude,
-        brightness: r.brightness,
-        bright_t31: r.bright_t31,
-        confidence: r.confidence,
-        daynight: r.daynight,
-        elevation: r.elevation,
-        slope: r.slope,
-        aspect: r.aspect,
-        temp: r.temp,
-        humidity: r.humidity,
-        wind_speed: r.wind_speed,
-        precip: r.precip,
-        month: r.month,
-      }));
-      const cluster = { points, clickedPoint: { latitude: lat, longitude: lon } };
-
-      await handleRunForecast(cluster, 24);
-      setStatusMessage(null);
-      setIsPlaying(true);
-    } catch (e) {
-      console.error("Run Demo failed:", e);
-      alert("Run Demo failed: " + (e?.message || e));
-      setStatusMessage(null);
-    }
-  };
 
   // Animation playback control
   useEffect(() => {
@@ -562,30 +475,7 @@ function App() {
     }
   };
 
-  // --- Backend connectivity test helper (use /health) ---
-  const testBackend = async () => {
-    const url = `${BACKEND_URL.replace(/\/+$/, '')}/health`;
-    try {
-      console.log("[ui] Testing backend:", url);
-      const res = await fetch(url, { method: "GET" });
-      const text = await res.text();
-      console.log("[ui] Backend status:", res.status);
-      console.log("[ui] Backend body:", text);
-      if (!res.ok) {
-        alert(`Backend error ${res.status}: ${text}`);
-        return;
-      }
-      try {
-        const json = JSON.parse(text);
-        alert("Backend OK: " + JSON.stringify(json));
-      } catch {
-        alert("Backend OK: " + text);
-      }
-    } catch (err) {
-      console.error("[ui] Error talking to backend:", err);
-      alert(`Network / CORS error: ${err?.message || err}`);
-    }
-  };
+
 
   const renderContent = () => {
     switch (currentView) {
@@ -745,24 +635,6 @@ function App() {
           console.log("Location selected:", location);
         }}
       />
-
-      {/* Backend connectivity test button */}
-      <div
-        style={{
-          position: "fixed",
-          top: "80px",
-          right: "20px",
-          zIndex: 9999,
-        }}
-      >
-        <button onClick={testBackend}>Test backend</button>
-        <div style={{ marginTop: 8 }}>
-          <button onClick={seedFromFireInputs}>Seed from fire_inputs</button>
-        </div>
-        <div style={{ marginTop: 8 }}>
-          <button onClick={runDemo}>Run Demo</button>
-        </div>
-      </div>
 
       {/* Batch fire_inputs processor removed per request */}
 
