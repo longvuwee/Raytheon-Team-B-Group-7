@@ -17,9 +17,16 @@ from typing import Tuple, Dict, Any
 # Optional Postgres support: prefer psycopg v3, fallback off
 try:
     import psycopg  # type: ignore
+    from psycopg.types.json import Json  # type: ignore
     HAS_PG = True
 except Exception:
     psycopg = None  # type: ignore
+    # Fallback: simple passthrough if Json import fails (will still error if DB is used without psycopg)
+    try:
+        def Json(x):  # type: ignore
+            return x
+    except Exception:
+        pass
     HAS_PG = False
 from flask import Flask, request, jsonify
 from flask import Response
