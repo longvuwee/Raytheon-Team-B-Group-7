@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import { selectPredictionCells, predictForSelectedCells } from "../utils/selectPredictionCells";
+import { predictForSelectedCells } from "../utils/selectPredictionCells";
 
 export async function fetchFireCellStateNeighborhood(blockRow, blockCol, radius = 1) {
   const r0 = Number(blockRow);

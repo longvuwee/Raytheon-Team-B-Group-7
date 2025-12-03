@@ -2,7 +2,7 @@ import { blockCenter } from "./makeForecastPixelGrid";
 
 function parseKeyToRowCol(key) {
   if (!key) return null;
-  const m = /^CA-(\-?\d+)-(\-?\d+)$/.exec(String(key));
+  const m = /^CA-(-?\d+)-(-?\d+)$/.exec(String(key));
   if (m) return { row: Number(m[1]), col: Number(m[2]) };
   const parts = String(key).split(",");
   if (parts.length === 2) {

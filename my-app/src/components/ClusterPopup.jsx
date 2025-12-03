@@ -49,14 +49,7 @@ export default function ClusterPopup({
     }
   };
 
-  const formatDateTime = (dt) => {
-    if (!dt) return '—';
-    try {
-      return new Date(dt).toLocaleString();
-    } catch {
-      return String(dt);
-    }
-  };
+  // removed unused formatDateTime helper
 
   // Determine if popup should open below (true) or above (false) the point
   // Check if there's enough space above (popup height ~350-400px + 20px offset)

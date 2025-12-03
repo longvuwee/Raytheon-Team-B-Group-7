@@ -121,7 +121,6 @@ export default function makeForecastPixelGrid(predictions = [], options = {}) {
   // SW corner: (minRow, minCol)
   const swCenterLat = ORIGIN_LAT + (minRow + 0.5) * DEG_LAT_200FT;
   const swCellLon = degLonAtLat(swCenterLat);
-  const swCenterLon = ORIGIN_LON + (minCol + 0.5) * swCellLon;
   const minLat = ORIGIN_LAT + minRow * DEG_LAT_200FT;
   const maxLat = ORIGIN_LAT + (maxRow + 1) * DEG_LAT_200FT;
 

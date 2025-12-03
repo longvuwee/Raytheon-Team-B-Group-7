@@ -1,5 +1,5 @@
 // src/api/predictApi.js
-import { fetchUnprocessedInputs } from "./fireInputsApi";
+// removed unused fetchUnprocessedInputs import
 
 const BACKEND_URL =
   import.meta.env.VITE_BACKEND_URL || "https://firecast-x.onrender.com";

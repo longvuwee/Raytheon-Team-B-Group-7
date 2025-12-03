@@ -261,7 +261,7 @@ export async function preparePointInput(row) {
     try {
       const fetched = await fetchEnvironmentalData(row.latitude, row.longitude, new Date());
       env = fetched || {};
-    } catch (e) {
+    } catch {
       env = getDefaultEnvironmentalData();
     }
   }

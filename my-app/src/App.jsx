@@ -30,11 +30,11 @@ import FireSpreadLayer from "./components/FireSpreadLayer";
 import useTimeline from "./hooks/useTimeline";
 
 /* ---- Utils ---- */
-import { generateSpreadForecast, runPointPrediction, preparePointInput, streamSpreadForecast } from "./utils/forecastApi";
+import { streamSpreadForecast } from "./utils/forecastApi";
 import { fetchRecentFireInputs, fetchNearestFireInput } from "./api/fireInputsApi";
-import { selectAndPredictNeighborhood } from "./api/blockStateApi";
+// removed unused selectAndPredictNeighborhood
 import makeForecastHeatmap from "./utils/makeForecastHeatmap";
-import makeForecastPixelGrid, { snapToGrid, blockCenter } from "./utils/makeForecastPixelGrid";
+import makeForecastPixelGrid, { snapToGrid } from "./utils/makeForecastPixelGrid";
 import makeInitialStateRaster from "./utils/makeInitialStateRaster";
 import { GeoImage } from "@openglobus/og";
 
@@ -178,7 +178,7 @@ function App() {
         // Remove any previous initial-state overlay
         const globus = globeRef.current && globeRef.current.getGlobus && globeRef.current.getGlobus();
         if (initialStateLayerRef.current && globus?.planet) {
-          try { globus.planet.removeLayer(initialStateLayerRef.current); } catch {}
+          try { globus.planet.removeLayer(initialStateLayerRef.current); } catch (e) { void e; }
           initialStateLayerRef.current = null;
         }
         const raster = makeInitialStateRaster(cluster.points || []);
@@ -333,7 +333,7 @@ function App() {
 
       // Close any previous stream
       if (forecastStreamRef.current) {
-        try { forecastStreamRef.current.close(); } catch {}
+        try { forecastStreamRef.current.close(); } catch (e) { void e; }
         forecastStreamRef.current = null;
       }
       burnedCellsRef.current = new Set();
@@ -410,50 +410,7 @@ function App() {
     }
   };
 
-  // Handle neighbor-based prediction requests per your t/t_burn rule
-  const handleRunPointPredictionNeighbors = async (cluster) => {
-    try {
-      const clicked = cluster.clickedPoint || cluster.points[0];
-      const lat0 = clicked && (clicked.latitude ?? clicked.lat);
-      const lon0 = clicked && (clicked.longitude ?? clicked.lon);
-      if (!lat0 || !lon0) {
-        alert("Missing clicked point location");
-        return;
-      }
-      const center = snapToGrid(lat0, lon0);
-
-      // Predict for selected neighbors based on fire_cell_state around clicked block
-      const { cells, results } = await selectAndPredictNeighborhood(
-        { blockRow: center.row, blockCol: center.col, radius: 1, includeDiagonals: false, concurrency: 8 },
-        async (cell) => {
-          // Minimal row for backend features; environment defaults handled in preparePointInput inside runPointPrediction
-          const row = { id: `cell-${cell.row}-${cell.col}`, latitude: cell.centerLat, longitude: cell.centerLon };
-          return runPointPrediction(row, "random_forest");
-        }
-      );
-
-      // Convert results into a single-frame prediction overlay for inspection
-      const preds = results
-        .filter((r) => r && r.ok && r.res)
-        .map((r) => ({
-          time: 1,
-          lat: r.cell.centerLat,
-          lon: r.cell.centerLon,
-          spread_probability: Number(r.res.instant_spread_probability ?? 0),
-        }));
-
-      const pixel = makeForecastPixelGrid(preds);
-      const frame = [{ hour: 1, imageDataUrl: pixel.imageDataUrl, bbox: pixel.bbox, predictions: preds }];
-      prevLayersRef.current = layers;
-      setLayers((prev) => ({ ...prev, "Predicted Spread": false, "MODIS Hotspots": false }));
-      setForecastPredictions(frame);
-      setForecastFrame(0);
-      setIsPlaying(false);
-    } catch (e) {
-      console.error("Neighbor prediction failed:", e);
-      alert("Neighbor prediction failed: " + (e?.message || e));
-    }
-  };
+  // Removed unused handleRunPointPredictionNeighbors
 
   // Seed from Supabase fire_inputs as initial state
   const seedFromFireInputs = async () => {
@@ -589,7 +546,7 @@ function App() {
 
     // Close live stream if active
     if (forecastStreamRef.current) {
-      try { forecastStreamRef.current.close(); } catch {}
+      try { forecastStreamRef.current.close(); } catch (e) { void e; }
       forecastStreamRef.current = null;
     }
 
@@ -601,7 +558,7 @@ function App() {
     // Remove initial-state overlay, if any
     const globus = globeRef.current && globeRef.current.getGlobus && globeRef.current.getGlobus();
     if (initialStateLayerRef.current && globus?.planet) {
-      try { globus.planet.removeLayer(initialStateLayerRef.current); } catch {}
+      try { globus.planet.removeLayer(initialStateLayerRef.current); } catch (e) { void e; }
       initialStateLayerRef.current = null;
     }
   };
