@@ -1217,7 +1217,19 @@ def predict_spread_animation():
             print(f"⚠️  Hit MAX_CELLS limit ({MAX_CELLS}) at time step {t}")
             break
 
-        # Gather candidates: neighbors of currently burning cells + the burning cells themselves
+        # First, add all currently burning cells to predictions_out for this timestep
+        # This ensures burning cells are visible (prevents hollow square artifact)
+        for b_id, st in list(blocks.items()):
+            if st.get("T_burn") == 1:
+                predictions_out.append({
+                    "time": t,
+                    "lat": st["center_lat"],
+                    "lon": st["center_lon"],
+                    "spread_probability": st.get("last_prob", 1.0),
+                    "block_id": b_id,
+                })
+
+        # Gather candidates: neighbors of currently burning cells
         candidates = {}
         for b_id, st in list(blocks.items()):
             if st.get("T_burn") == 1:

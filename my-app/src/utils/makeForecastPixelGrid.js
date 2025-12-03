@@ -30,7 +30,7 @@ export default function makeForecastPixelGrid(predictions = []) {
   if (!predictions || predictions.length === 0) return { imageDataUrl: null, bbox: null };
 
   // Map each prediction into a block row/col and keep max probability per cell
-  const cells = new Map(); // key -> { row, col, prob, t, t_burn }
+  let cells = new Map(); // key -> { row, col, prob, t, t_burn }
   let minRow = Infinity, maxRow = -Infinity, minCol = Infinity, maxCol = -Infinity;
 
   for (const p of predictions) {
@@ -52,43 +52,35 @@ export default function makeForecastPixelGrid(predictions = []) {
     if (col > maxCol) maxCol = col;
   }
 
-  // Fill ONLY very small gaps (single cells completely surrounded by 8 burning neighbors)
-  // This prevents hollow squares while filling obvious holes
-  const burningCells = new Set();
-  for (const [key, cell] of cells.entries()) {
-    if (cell.t_burn === 1) {
-      burningCells.add(key);
-    }
-  }
-
-  // Find single-cell holes completely surrounded
+  // Simple fill: only fill small interior gaps (max 3x3 holes)
+  // This prevents hollow squares without making things blurry
   const toFill = [];
   for (let r = minRow; r <= maxRow; r++) {
     for (let c = minCol; c <= maxCol; c++) {
       const key = `${r},${c}`;
-      if (cells.has(key)) continue; // already has data
+      if (cells.has(key)) continue;
 
-      // Check all 8 neighbors - only fill if ALL 8 are burning
-      let burningNeighbors = 0;
+      // Count how many of the 8 neighbors exist
+      let neighborCount = 0;
       for (let dr = -1; dr <= 1; dr++) {
         for (let dc = -1; dc <= 1; dc++) {
           if (dr === 0 && dc === 0) continue;
           const nKey = `${r + dr},${c + dc}`;
-          if (burningCells.has(nKey)) burningNeighbors++;
+          if (cells.has(nKey)) neighborCount++;
         }
       }
 
-      // Only fill if completely surrounded (all 8 neighbors burning)
-      if (burningNeighbors === 8) {
+      // Fill if surrounded by at least 6 out of 8 neighbors
+      if (neighborCount >= 6) {
         toFill.push({ row: r, col: c });
       }
     }
   }
 
-  // Add filled cells with slightly lower probability to indicate it's interpolated
+  // Add filled cells
   for (const { row, col } of toFill) {
     const key = `${row},${col}`;
-    cells.set(key, { row, col, prob: 0.75, t: 1, t_burn: 1 });
+    cells.set(key, { row, col, prob: 0.70, t: 1, t_burn: 1 });
   }
 
   if (cells.size === 0) return { imageDataUrl: null, bbox: null };
@@ -111,40 +103,27 @@ export default function makeForecastPixelGrid(predictions = []) {
   // Fill the background transparent
   ctx.clearRect(0, 0, width, height);
 
-  // Helper: color by probability AND time (older burns get darker)
+  // Helper: color by probability using risk level colors
   function colorForCell(prob, t, t_burn) {
-    // If not burning, use pale yellow with low opacity
-    if (t_burn !== 1) {
-      const a = Math.max(0.15, Math.min(0.5, prob));
-      return `rgba(255,230,122,${a})`;
-    }
-
-    // For burning cells, darken based on t (time since ignition)
-    // Higher t = darker color (longer burning = more charred)
-    const ageFactor = Math.min(1.0, t / 8); // normalize to 0-1 over ~8 hours
-    const brightness = 1.0 - (ageFactor * 0.6); // reduce brightness by up to 60%
-
-    const a = Math.max(0.7, Math.min(0.95, prob)); // high opacity for burning
+    // Color based on spread probability (risk levels)
+    // High Risk (75-100%): Red
+    // Medium Risk (50-75%): Orange  
+    // Low Risk (25-50%): Yellow
+    // Very Low (<25%): Light Yellow
     
-    // Color gradient: bright red → dark red → almost black
-    if (ageFactor < 0.3) {
-      // Fresh fire: bright red/orange
-      const r = Math.floor(210 * brightness);
-      const g = Math.floor(34 * brightness);
-      const b = Math.floor(34 * brightness);
-      return `rgba(${r},${g},${b},${a})`;
-    } else if (ageFactor < 0.6) {
-      // Medium age: darker red/brown
-      const r = Math.floor(150 * brightness);
-      const g = Math.floor(20 * brightness);
-      const b = Math.floor(20 * brightness);
-      return `rgba(${r},${g},${b},${a})`;
+    if (prob >= 0.75) {
+      // High Risk: Red
+      return `rgba(220, 38, 38, 0.9)`;
+    } else if (prob >= 0.50) {
+      // Medium Risk: Orange
+      return `rgba(249, 115, 22, 0.85)`;
+    } else if (prob >= 0.25) {
+      // Low Risk: Yellow
+      return `rgba(250, 204, 21, 0.75)`;
     } else {
-      // Old fire: very dark red/black
-      const r = Math.floor(80 * brightness);
-      const g = Math.floor(10 * brightness);
-      const b = Math.floor(10 * brightness);
-      return `rgba(${r},${g},${b},${a})`;
+      // Very Low Risk: Light Yellow
+      const alpha = Math.max(0.4, prob * 2); // fade out for very low probabilities
+      return `rgba(254, 240, 138, ${alpha})`;
     }
   }
 

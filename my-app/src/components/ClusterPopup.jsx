@@ -7,7 +7,7 @@ export default function ClusterPopup({
   onClose, 
   onRunForecast 
 }) {
-  const [forecastHours, setForecastHours] = useState(24);
+  const [forecastHours, setForecastHours] = useState(12);
   const [isLoading, setIsLoading] = useState(false);
   const [pointPrediction, setPointPrediction] = useState(null);
 

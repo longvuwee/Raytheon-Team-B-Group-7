@@ -244,6 +244,8 @@ function App() {
       setLoadingProgress(70);
       setLoadingMessage("Generating visualization data...");
 
+      // Temporarily disable seed injection to see raw model output
+      /*
       // Inject a contiguous N×N rasterized "seed" around the click location
       try {
         const clicked = cluster.clickedPoint || cluster.points[0];
@@ -275,6 +277,7 @@ function App() {
       } catch (e) {
         console.warn("Failed to create raster seed:", e);
       }
+      */
 
       const timeSteps = resp.time_steps || forecastHours || 1;
 
@@ -416,6 +419,8 @@ function App() {
       setLoadingMessage("Complete!");
       
       console.log("Forecast setup complete. Initial step loaded, computing remaining steps...");
+      // Temporarily disable loading overlay for debugging
+      setIsLoadingForecast(false);
       // Don't hide loading yet - will hide when all steps computed
       // setIsLoadingForecast(false) happens in computeNextStep when done
     } catch (error) {
@@ -626,19 +631,19 @@ function App() {
           // Update maxComputedStep which will trigger this effect again if needed
           setMaxComputedStep(resp.time_step);
           
-          // Update progress for incremental computation
-          const totalSteps = forecastPredictions.length;
-          const progressPercent = ((resp.time_step + 1) / totalSteps) * 100;
-          setLoadingProgress(progressPercent);
-          setLoadingMessage(`Computing fire spread: Hour ${resp.time_step + 1} of ${totalSteps}`);
+          // Temporarily disabled - update progress for incremental computation
+          // const totalSteps = forecastPredictions.length;
+          // const progressPercent = ((resp.time_step + 1) / totalSteps) * 100;
+          // setLoadingProgress(progressPercent);
+          // setLoadingMessage(`Computing fire spread: Hour ${resp.time_step + 1} of ${totalSteps}`);
           
-          // Hide loading overlay when all steps are computed
-          if (resp.time_step >= totalSteps - 1) {
-            setLoadingMessage("Simulation complete!");
-            setTimeout(() => {
-              setIsLoadingForecast(false);
-            }, 500); // Brief delay to show completion
-          }
+          // Temporarily disabled - Hide loading overlay when all steps are computed
+          // if (resp.time_step >= totalSteps - 1) {
+          //   setLoadingMessage("Simulation complete!");
+          //   setTimeout(() => {
+          //     setIsLoadingForecast(false);
+          //   }, 500); // Brief delay to show completion
+          // }
           
           // Auto-advance slider ONLY if play is active
           if (isPlaying && resp.time_step < forecastPredictions.length - 1) {
