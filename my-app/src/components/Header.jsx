@@ -3,8 +3,7 @@ import Logo from "./Logo";
 const SECTIONS = [
   { title: "Map", href: "#/" },
   { title: "Creators", href: "#/creators" },
-  { title: "API", href: "#/api" },
-  { title: "Docs", href: "#/docs" },
+  { title: "Docs", href: "https://github.com/longvuwee/Raytheon-Team-B-Group-7", external: true },
 ];
 
 export default function Header({ currentView, globeRef, SearchBar, onLocationSelect }) {
@@ -16,6 +15,27 @@ export default function Header({ currentView, globeRef, SearchBar, onLocationSel
     // Also navigate to home if not already there
     if (window.location.hash !== '#/' && window.location.hash !== '') {
       window.location.hash = '#/';
+    }
+  };
+
+  const handleLinkClick = (e, section) => {
+    if (section.external) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Open in background tab by using a temporary link with download attribute trick
+      const link = document.createElement('a');
+      link.href = section.href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      // Dispatch with middle mouse button simulation to open in background
+      const evt = new MouseEvent('click', {
+        ctrlKey: true,
+        metaKey: true,
+        button: 0,
+        bubbles: true,
+        cancelable: true
+      });
+      link.dispatchEvent(evt);
     }
   };
 
@@ -46,7 +66,6 @@ export default function Header({ currentView, globeRef, SearchBar, onLocationSel
           const isActive = 
             (s.title === 'Map' && currentView === 'map') ||
             (s.title === 'Creators' && currentView === 'creators') ||
-            (s.title === 'API' && currentView === 'api') ||
             (s.title === 'Docs' && currentView === 'docs');
           
           return (
@@ -54,6 +73,8 @@ export default function Header({ currentView, globeRef, SearchBar, onLocationSel
               key={s.title} 
               className={`header-link ${isActive ? 'header-link-bold' : ''}`} 
               href={s.href}
+              onClick={(e) => handleLinkClick(e, s)}
+              {...(s.external && { rel: "noopener noreferrer" })}
             >
               {s.title}
             </a>

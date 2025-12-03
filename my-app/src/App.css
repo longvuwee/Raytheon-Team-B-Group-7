@@ -274,9 +274,8 @@
 
 /* left vs right anchor */
 .collapsible.left  { 
-  
   left: 10px;
-  top: 52%; /* Positioned to avoid navigation controls */
+  top: 50%; /* Positioned to avoid navigation controls */
 
 }
 .collapsible.right { 
@@ -722,63 +721,7 @@
   line-height: 1.6;
 }
 
-/* Responsive design */
-@media (max-width: 768px) {
-  .site-header {
-    height: 70px;
-    padding: 12px 16px;
-    flex-wrap: wrap;
-  }
-  
-  .header-center {
-    position: static;
-    transform: none;
-    order: 3;
-    width: 100%;
-    justify-content: center;
-    margin-top: 8px;
-  }
-  
-  .map-button {
-    padding: 8px 16px;
-    font-size: 0.9rem;
-  }
-  
-  .header-nav {
-    gap: 6px;
-  }
-  
-  .header-center {
-    position: static;
-    transform: none;
-    order: 3;
-    width: 100%;
-    justify-content: center;
-    margin-top: 8px;
-  }
-  
-  .header-link {
-    padding: 8px 12px;
-    font-size: 0.9rem;
-  }
-  
-  .creators-page {
-    padding-top: 80px;
-  }
-  
-  .team-grid {
-    grid-template-columns: 1fr;
-    gap: 1.5rem;
-  }
-  
-  .page-content {
-    padding: 100px 1.5rem 2rem;
-  }
-  
-  .page-content h1 {
-    font-size: 2.5rem;
-  }
-}
+
 
 /* Legend styles for right panel */
 .legend-items {
@@ -1141,40 +1084,6 @@
 
 .icon-linkedin::before {
   content: "💼";
-}
-
-/* Legend styles for right panel */
-.legend-items {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  transition: all 0.2s ease;
-}
-
-.legend-item:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.legend-color {
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
-
-.legend-text {
-  color: #fff;
-  font-size: 14px;
-  font-weight: 500;
 }
 
 /* Nudge floating controls below header */
@@ -1697,7 +1606,7 @@
 
 /* Weather legend content INSIDE the .legend-card box */
 .weather-legend-body {
-  border-radius: 0 8px 8px 8px; /* tabs sit on missing corner */
+  border-radius: 0px 0px 8px 8px; /* tabs sit on missing corner */
   border: 1px solid rgba(255, 255, 255, 0.25);
   background: rgba(0, 0, 0, 0.11);
   padding: 0.55rem 0.65rem 0.65rem;

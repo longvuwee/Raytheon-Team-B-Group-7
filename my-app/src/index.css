@@ -60,19 +60,6 @@ html, body, #root {
     font-size: 0.9rem;
   }
   
-  .header-nav {
-    gap: 6px;
-  }
-  
-  .header-center {
-    position: static;
-    transform: none;
-    order: 3;
-    width: 100%;
-    justify-content: center;
-    margin-top: 8px;
-  }
-  
   .header-link {
     padding: 8px 12px;
     font-size: 0.9rem;
@@ -229,13 +216,8 @@ html, body, #root {
   margin-bottom: 1rem;
 }
 
-.panel-text {
-  font-size: 0.9rem;
-  color: #f5f5f5;
-  margin: 0.15rem 0;
-}
+/* .panel-text and .panel-text.subtle are defined in App.css */
 
-.panel-text.subtle,
 .field-helper {
   font-size: 0.8rem;
   color: #cccccc;
