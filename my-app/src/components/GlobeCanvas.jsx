@@ -37,6 +37,8 @@ const GlobeCanvas = forwardRef(function GlobeCanvas(
 
     globeRef.current = g;
 
+
+
     const onResize = () => g.renderer.resize();
     window.addEventListener("resize", onResize);
 
@@ -55,6 +57,11 @@ const GlobeCanvas = forwardRef(function GlobeCanvas(
   // Expose a tiny API to the parent via ref (no data-* props)
   useImperativeHandle(ref, () => ({
     getGlobus: () => globeRef.current,
+    resetToInitialView: () => {
+      if (globeRef.current) {
+        globeRef.current.planet.camera.flyLonLat(initialView);
+      }
+    },
     setBase: (name) => {
       if (!osmRef.current || !satRef.current) return;
       const showOSM = name === "OSM";

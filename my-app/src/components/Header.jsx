@@ -8,14 +8,25 @@ const SECTIONS = [
 ];
 
 export default function Header({ currentView, globeRef, SearchBar, onLocationSelect }) {
+  const handleLogoClick = (e) => {
+    e.preventDefault();
+    if (globeRef?.current?.resetToInitialView) {
+      globeRef.current.resetToInitialView();
+    }
+    // Also navigate to home if not already there
+    if (window.location.hash !== '#/' && window.location.hash !== '') {
+      window.location.hash = '#/';
+    }
+  };
+
   return (
     <header className="site-header" role="banner">
       {/* Left: Logo + Title */}
       <div className="header-left">
-        <a className="header-brand" href="#/">
+        <div className="header-brand" onClick={handleLogoClick} style={{ cursor: 'pointer' }}>
           <Logo className="header-logo" />
           <span className="header-title">FireCastX</span>
-        </a>
+        </div>
       </div>
 
       {/* Center: Search Bar (only on map page) */}

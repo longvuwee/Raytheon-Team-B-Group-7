@@ -60,8 +60,8 @@ const teamMembers = [
   {
     id: 6,
     name: "Long Vu",
-    role: "Frontend Integration Engineer",
-    skills: ["React", "HTML", "CSS", "JavaScript", "API Integration"],
+    role: "Full Stack Engineer",
+    skills: ["React", "HTML", "CSS", "JavaScript", "Python", "API Integration"],
     contribution: "Designed and developed the complete user interface architecture and frontend framework. Subsequently integrated frontend systems with backend services and APIs to ensure seamless data flow and user experience.",
     bio: "Frontend integration engineer specializing in connecting user interfaces with backend systems. Passionate about creating smooth user experiences.",
     avatar: "/images/team/long-vu.jpg",
@@ -176,7 +176,7 @@ export default function Creators() {
               <div className="stat-label">Model Accuracy</div>
             </div>
             <div className="stat-item">
-              <div className="stat-number">3</div>
+              <div className="stat-number">2</div>
               <div className="stat-label">ML Models Integrated</div>
             </div>
             <div className="stat-item">
