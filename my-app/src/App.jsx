@@ -73,7 +73,6 @@ function App() {
   const [vizMode, setVizMode] = useState("KDE Heatmap");
   const [layers, setLayers] = useState({
     "Predicted Spread": true,
-    "2025 Fire Perimeters": false,
     "MODIS Hotspots": true,
   });
 
