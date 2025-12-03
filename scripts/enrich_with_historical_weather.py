@@ -4,7 +4,7 @@ import requests
 import pandas as pd
 from datetime import datetime, time
 
-INPUT_CSV = "data/datasets/fires_with_topo_full.csv"   # your current fire csv
+INPUT_CSV = "outputs/features/fires_with_topo_full.csv"   # your current fire csv
 OUT_CSV = "outputs/features/fires_with_hist_weather.csv"
 os.makedirs("outputs/features", exist_ok=True)
 

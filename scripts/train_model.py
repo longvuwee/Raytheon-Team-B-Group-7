@@ -366,9 +366,13 @@ def train_sklearn_models(X_train, X_test, y_train, y_test, feature_cols, out_dir
         "report": classification_report(y_test, y_pred_lr, output_dict=True),
     }
 
-    # Random Forest
+    # Random Forest with regularization to prevent overfitting
     rf = RandomForestClassifier(
-        n_estimators=300,
+        n_estimators=200,           # Reduced from 300 - fewer trees = less overfitting
+        max_depth=10,                # Limit tree depth to prevent memorization
+        min_samples_split=20,        # Require more samples to split (generalization)
+        min_samples_leaf=10,         # Require more samples per leaf (smoother predictions)
+        max_features='sqrt',         # Use sqrt(n_features) per split (reduces correlation)
         random_state=42,
         class_weight=cw_dict,
         n_jobs=-1

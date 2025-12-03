@@ -160,7 +160,7 @@ def snap_to_grid(lat: float, lon: float) -> Block:
     return Block(block_id=block_id, row=row, col=col, center_lat=center_lat, center_lon=center_lon)
 
 
-SPREAD_THRESHOLD = 0.75
+SPREAD_THRESHOLD = 0.55  # Lowered from 0.75 to classify more fires as spreading
 T_MAX = 12
 
 
@@ -605,8 +605,16 @@ def predict():
 
     # ---- Call model ----
     try:
+        # Debug: log features being sent to model
+        print(f"[predict] Features: lat={features.get('latitude')}, lon={features.get('longitude')}, "
+              f"brightness={features.get('brightness')}, bright_t31={features.get('bright_t31')}, "
+              f"confidence={features.get('confidence')}, temp={features.get('temp')}, "
+              f"humidity={features.get('humidity')}, wind_speed={features.get('wind_speed')}")
+        
         pred = predict_fire_spread(features, model_name=model_name)
         inst_prob = float(pred["spread_probability"])
+        
+        print(f"[predict] Model '{model_name}' returned probability: {inst_prob:.4f}")
     except Exception as e:
         # Log model errors with minimal noise
         print(f"[predict] Model prediction failed: {type(e).__name__}: {e}")

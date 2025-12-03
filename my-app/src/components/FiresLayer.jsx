@@ -60,7 +60,7 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
         // Build date filter using created_at and apply confidence=100
         const startISO = new Date(startDate).toISOString().replace('T', ' ').substring(0, 19);
         const endISO = new Date(endDate).toISOString().replace('T', ' ').substring(0, 19);
-        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fire_inputs?select=latitude,longitude,confidence,created_at&confidence=gte.80&created_at=gte.${startISO}&created_at=lt.${endISO}`;
+        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fire_inputs?select=latitude,longitude,brightness,bright_t31,confidence,daynight,elevation,slope,aspect,temp,humidity,wind_speed,precip,month,created_at&confidence=gte.80&created_at=gte.${startISO}&created_at=lt.${endISO}`;
         console.log("FiresLayer: Fetching fire_inputs (confidence>=80, date-filtered) from", url);
         const res = await fetch(url, {
           headers: {
