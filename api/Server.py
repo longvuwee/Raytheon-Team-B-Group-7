@@ -60,14 +60,17 @@ def handle_exception(e):
     resp = jsonify({"ok": False, "error": f"{type(e).__name__}: {str(e)}"})
     return resp, 500
 
-# Explicit OPTIONS handler to ensure 200 OK on preflight
-@app.route("/predict", methods=["OPTIONS"])
-def predict_options():
-    return ("", 200)
+# Handle 404 errors with logging
+@app.errorhandler(404)
+def not_found(e):
+    print(f"[server] 404 Not Found: {request.method} {request.path}")
+    return jsonify({"ok": False, "error": "Endpoint not found", "path": request.path}), 404
 
-@app.route("/predict-spread-animation", methods=["OPTIONS"])
-def predict_spread_animation_options():
-    return ("", 200)
+# Catch-all OPTIONS handler for CORS preflight on any route
+@app.route('/', defaults={'path': ''}, methods=['OPTIONS'])
+@app.route('/<path:path>', methods=['OPTIONS'])
+def handle_options(path):
+    return '', 200
 
 # ---- MODEL FEATURE KEYS (ONLY THESE GO TO THE MODEL) ----
 FEATURE_KEYS = [
