@@ -1059,7 +1059,7 @@ def predict_spread_animation():
     start_time = time.time()
     
     cluster = body.get("cluster") or []
-    time_steps = int(body.get("time_steps", 24))
+    time_steps = int(body.get("time_steps", 12))
     compute_initial_only = bool(body.get("compute_initial_only", False))
     model_name = (body.get("model_name") or body.get("model") or "random_forest").lower()
 

@@ -27,8 +27,9 @@ import ClusterPopup from "./components/ClusterPopup";
 import ForecastControls from "./components/ForecastControls";
 import FireSpreadLayer from "./components/FireSpreadLayer";
 import FireInputsProcessor from "./components/FireInputsProcessor";
+import LoadingOverlay from "./components/LoadingOverlay";
 
-/* ---- Hooks ---- */
+/* ---- APIs ---- */
 import useTimeline from "./hooks/useTimeline";
 
 /* ---- Utils ---- */
@@ -96,6 +97,8 @@ function App() {
   const [forecastTemplate, setForecastTemplate] = useState(null);
   const [isComputingStep, setIsComputingStep] = useState(false);
   const [isLoadingForecast, setIsLoadingForecast] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingMessage, setLoadingMessage] = useState("");
 
   // Keep this stable so GlobeCanvas doesn't re-init
   const initialView = useMemo(
@@ -174,6 +177,11 @@ function App() {
     try {
       console.log("Running forecast for cluster:", cluster);
       console.log("Forecast hours:", forecastHours);
+      
+      // Set loading state with progress
+      setIsLoadingForecast(true);
+      setLoadingProgress(0);
+      setLoadingMessage("Initializing forecast...");
 
       // Close popup
       setSelectedCluster(null);
@@ -181,7 +189,35 @@ function App() {
 
       // Generate predictions from backend (using random_forest model which is fixed)
       console.log("Calling backend API...");
+      console.log("Cluster points count:", cluster.points.length);
+      console.log("First point data:", cluster.points[0]);
+      console.log("Clicked point data:", cluster.clickedPoint);
+      
+      // Validate that points have required fields
+      const requiredFields = ['latitude', 'longitude'];
+      const optionalFields = ['brightness', 'bright_t31', 'confidence', 'daynight', 'elevation', 'slope', 'aspect', 'temp', 'humidity', 'wind_speed', 'precip', 'month'];
+      
+      const firstPoint = cluster.points[0];
+      const missingRequired = requiredFields.filter(f => !(f in firstPoint));
+      if (missingRequired.length > 0) {
+        console.error("Missing required fields:", missingRequired);
+        alert(`Cannot run forecast: missing required fields ${missingRequired.join(', ')}`);
+        setIsLoadingForecast(false);
+        return;
+      }
+      
+      const missingOptional = optionalFields.filter(f => !(f in firstPoint));
+      if (missingOptional.length > 0) {
+        console.warn("Missing optional fields (backend will use defaults):", missingOptional);
+      }
+      
+      setLoadingProgress(10);
+      setLoadingMessage("Validating fire data...");
+      
       const startTime = Date.now();
+      setLoadingProgress(20);
+      setLoadingMessage("Running fire spread simulation...");
+      
       const resp = await generateSpreadForecast(
         cluster.points,
         forecastHours,
@@ -189,6 +225,9 @@ function App() {
         true  // compute_initial_only = true for incremental mode
       );
       const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      
+      setLoadingProgress(60);
+      setLoadingMessage("Processing simulation results...");
 
       console.log(`Backend response received in ${elapsedTime}s:`, resp);
       let predictions = resp.predictions || [];
@@ -201,6 +240,9 @@ function App() {
         setIsLoadingForecast(false);
         return;
       }
+
+      setLoadingProgress(70);
+      setLoadingMessage("Generating visualization data...");
 
       // Inject a contiguous N×N rasterized "seed" around the click location
       try {
@@ -275,8 +317,16 @@ function App() {
       console.log("Building forecast frames for", timeSteps, "time steps");
       console.log("Predictions by hour:", Object.keys(predictionsByHour).length, "hours with data");
       
+      setLoadingProgress(80);
+      setLoadingMessage("Rendering forecast visualizations...");
+      
       const forecastData = [];
       for (let h = 0; h < timeSteps; h++) {
+        // Update progress as we process each frame
+        const frameProgress = 80 + (h / timeSteps) * 15; // 80% to 95%
+        setLoadingProgress(frameProgress);
+        setLoadingMessage(`Rendering hour ${h + 1} of ${timeSteps}...`);
+        
         const preds = predictionsByHour[h] || [];
         console.log(`Hour ${h}: ${preds.length} predictions`);
         let imageDataUrl = null;
@@ -327,6 +377,9 @@ function App() {
       console.log("Setting forecast predictions:", forecastData.length, "frames");
       console.log("Sample frame 0:", forecastData[0]);
       
+      setLoadingProgress(95);
+      setLoadingMessage("Finalizing forecast display...");
+      
       // Store simulation state - only step 0 computed initially
       setSimulationId(resp.simulation_id);
       setMaxComputedStep(0);  // Only step 0 computed
@@ -359,8 +412,12 @@ function App() {
         }
       }
       
-      console.log("Forecast setup complete. Predictions should now be visible on globe.");
-      setIsLoadingForecast(false);
+      setLoadingProgress(100);
+      setLoadingMessage("Complete!");
+      
+      console.log("Forecast setup complete. Initial step loaded, computing remaining steps...");
+      // Don't hide loading yet - will hide when all steps computed
+      // setIsLoadingForecast(false) happens in computeNextStep when done
     } catch (error) {
       console.error("Forecast generation failed:", error);
       window.alert("Failed to generate forecast. Please try again.");
@@ -569,6 +626,20 @@ function App() {
           // Update maxComputedStep which will trigger this effect again if needed
           setMaxComputedStep(resp.time_step);
           
+          // Update progress for incremental computation
+          const totalSteps = forecastPredictions.length;
+          const progressPercent = ((resp.time_step + 1) / totalSteps) * 100;
+          setLoadingProgress(progressPercent);
+          setLoadingMessage(`Computing fire spread: Hour ${resp.time_step + 1} of ${totalSteps}`);
+          
+          // Hide loading overlay when all steps are computed
+          if (resp.time_step >= totalSteps - 1) {
+            setLoadingMessage("Simulation complete!");
+            setTimeout(() => {
+              setIsLoadingForecast(false);
+            }, 500); // Brief delay to show completion
+          }
+          
           // Auto-advance slider ONLY if play is active
           if (isPlaying && resp.time_step < forecastPredictions.length - 1) {
             setTimeout(() => {
@@ -742,6 +813,7 @@ function App() {
                     globeRef={globeRef}
                     predictions={forecastPredictions}
                     currentFrame={forecastFrame}
+                    opacity={0.8}
                   />
                 )}
               </>
@@ -873,6 +945,11 @@ function App() {
         >
           {statusMessage}
         </div>
+      )}
+
+      {/* Loading overlay with progress */}
+      {isLoadingForecast && (
+        <LoadingOverlay progress={loadingProgress} message={loadingMessage} />
       )}
 
       {renderContent()}

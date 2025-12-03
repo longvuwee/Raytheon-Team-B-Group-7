@@ -52,7 +52,8 @@ export default function makeForecastPixelGrid(predictions = []) {
     if (col > maxCol) maxCol = col;
   }
 
-  // Fill gaps: if a cell is surrounded by burning cells, make it burn too
+  // Fill ONLY very small gaps (single cells completely surrounded by 8 burning neighbors)
+  // This prevents hollow squares while filling obvious holes
   const burningCells = new Set();
   for (const [key, cell] of cells.entries()) {
     if (cell.t_burn === 1) {
@@ -60,14 +61,14 @@ export default function makeForecastPixelGrid(predictions = []) {
     }
   }
 
-  // Find cells that should be filled (surrounded by burning cells)
+  // Find single-cell holes completely surrounded
   const toFill = [];
   for (let r = minRow; r <= maxRow; r++) {
     for (let c = minCol; c <= maxCol; c++) {
       const key = `${r},${c}`;
-      if (burningCells.has(key)) continue; // already burning
+      if (cells.has(key)) continue; // already has data
 
-      // Check 8 neighbors
+      // Check all 8 neighbors - only fill if ALL 8 are burning
       let burningNeighbors = 0;
       for (let dr = -1; dr <= 1; dr++) {
         for (let dc = -1; dc <= 1; dc++) {
@@ -77,19 +78,17 @@ export default function makeForecastPixelGrid(predictions = []) {
         }
       }
 
-      // If surrounded by 3+ burning neighbors, fill this gap
-      if (burningNeighbors >= 3) {
+      // Only fill if completely surrounded (all 8 neighbors burning)
+      if (burningNeighbors === 8) {
         toFill.push({ row: r, col: c });
       }
     }
   }
 
-  // Add filled cells
+  // Add filled cells with slightly lower probability to indicate it's interpolated
   for (const { row, col } of toFill) {
     const key = `${row},${col}`;
-    if (!cells.has(key)) {
-      cells.set(key, { row, col, prob: 0.8, t: 1, t_burn: 1 });
-    }
+    cells.set(key, { row, col, prob: 0.75, t: 1, t_burn: 1 });
   }
 
   if (cells.size === 0) return { imageDataUrl: null, bbox: null };

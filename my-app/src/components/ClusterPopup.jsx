@@ -74,15 +74,15 @@ export default function ClusterPopup({
         onClick={(e) => e.stopPropagation()}
       >
       <div className="popup-header">
-        <h3>🔥 Fire Cluster</h3>
+        <h3>🔥 Fire Point Selected</h3>
         <button className="popup-close" onClick={onClose}>×</button>
       </div>
       
       <div className="popup-content">
         <div className="cluster-stats">
           <div className="stat">
-            <span className="label">Fire Points:</span>
-            <span className="value">{cluster.points.length}</span>
+            <span className="label">Cluster Size:</span>
+            <span className="value">{cluster.points.length} point{cluster.points.length !== 1 ? 's' : ''}</span>
           </div>
           <div className="stat">
             <span className="label">Location:</span>
@@ -135,20 +135,25 @@ export default function ClusterPopup({
             className="forecast-button"
             onClick={handleRunPoint}
             disabled={isLoading}
-            title="Run a single-point prediction for the first point in this cluster"
+            title="Run instant fire spread prediction for this point"
           >
             <span className="button-icon">🎯</span>
-            {isLoading ? "Running..." : "Run Point Prediction"}
+            {isLoading ? "Running..." : "Point Prediction"}
           </button>
 
           <button 
             className="forecast-button"
             onClick={handleRunForecast}
             disabled={isLoading}
+            title="Generate multi-hour fire spread forecast simulation"
           >
             <span className="button-icon">🔮</span>
-            {isLoading ? "Generating Forecast..." : "Run Spread Forecast"}
+            {isLoading ? "Generating..." : "Spread Forecast"}
           </button>
+        </div>
+        
+        <div style={{ fontSize: '11px', color: '#aaa', marginTop: 8, textAlign: 'center' }}>
+          Click any fire point to run predictions
         </div>
       </div>
       {pointPrediction && (

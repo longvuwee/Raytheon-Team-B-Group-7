@@ -107,7 +107,7 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
         console.log(`FiresLayer: Added ${entities.length} entities`);
         sync();
 
-        // Use globe-level click detection instead of per-entity events
+        // Use globe-level click detection for all fire points
         if (onClusterClick) {
           const clickHandler = (e) => {
             // Check if we clicked on an entity from the Fires layer
@@ -116,17 +116,19 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
             const clickedEntity = e.pickingObject;
             if (!clickedEntity._layer || clickedEntity._layer.name !== "Fires") return;
             
-            console.log("FiresLayer: Fire point clicked!", clickedEntity.properties);
+            console.log("🔥 Fire point clicked! Running prediction available.", clickedEntity.properties);
             
             // Find all nearby points within radius
             const clickedPoint = { 
               lat: clickedEntity.properties.lat, 
               lon: clickedEntity.properties.lon 
             };
-            // Find the exact row for the clicked point (to access its datetime)
+            // Find the exact row for the clicked point (to access all its data)
             const clickedRow = pointsWithData.find(pt => 
               Math.abs(pt.lat - clickedPoint.lat) < 1e-9 && Math.abs(pt.lon - clickedPoint.lon) < 1e-9
             );
+            
+            // Find nearby points to create a cluster (0.5 degree radius ~ 55km)
             const nearbyPoints = findNearbyPoints(clickedPoint, pointsWithData, 0.5);
             
             if (nearbyPoints.length > 0) {
@@ -137,6 +139,7 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
               const globeCanvas = globus.renderer.handler.canvas;
               const rect = globeCanvas.getBoundingClientRect();
               
+              // Create cluster object with full data for predictions
               onClusterClick({
                 points: nearbyPoints,
                 centerLat,
