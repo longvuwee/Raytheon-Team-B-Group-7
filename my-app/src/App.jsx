@@ -244,8 +244,6 @@ function App() {
       setLoadingProgress(70);
       setLoadingMessage("Generating visualization data...");
 
-      // Temporarily disable seed injection to see raw model output
-      /*
       // Inject a contiguous N×N rasterized "seed" around the click location
       try {
         const clicked = cluster.clickedPoint || cluster.points[0];
@@ -277,7 +275,6 @@ function App() {
       } catch (e) {
         console.warn("Failed to create raster seed:", e);
       }
-      */
 
       const timeSteps = resp.time_steps || forecastHours || 1;
 

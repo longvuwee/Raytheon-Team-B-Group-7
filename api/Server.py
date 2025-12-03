@@ -1228,6 +1228,30 @@ def predict_spread_animation():
                     "spread_probability": st.get("last_prob", 1.0),
                     "block_id": b_id,
                 })
+                
+                # Also write burning cells to database
+                if cur is not None:
+                    try:
+                        cur.execute(
+                            """
+                            INSERT INTO fire_predictions (
+                                simulation_id, time_step, block_id, latitude, longitude,
+                                spread_probability, t, t_burn, exposure
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (simulation_id, time_step, block_id) DO UPDATE SET
+                                latitude = EXCLUDED.latitude,
+                                longitude = EXCLUDED.longitude,
+                                spread_probability = EXCLUDED.spread_probability,
+                                t = EXCLUDED.t,
+                                t_burn = EXCLUDED.t_burn,
+                                exposure = EXCLUDED.exposure,
+                                created_at = now()
+                            """,
+                            (simulation_id, t, b_id, st["center_lat"], st["center_lon"],
+                             st.get("last_prob", 1.0), st.get("T", 0), st.get("T_burn", 1), st.get("exposure", 0.0))
+                        )
+                    except Exception as e:
+                        print(f"Warning: Failed to write burning cell to DB: {e}")
 
         # Gather candidates: neighbors of currently burning cells
         candidates = {}

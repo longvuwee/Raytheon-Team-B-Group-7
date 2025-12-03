@@ -52,36 +52,8 @@ export default function makeForecastPixelGrid(predictions = []) {
     if (col > maxCol) maxCol = col;
   }
 
-  // Simple fill: only fill small interior gaps (max 3x3 holes)
-  // This prevents hollow squares without making things blurry
-  const toFill = [];
-  for (let r = minRow; r <= maxRow; r++) {
-    for (let c = minCol; c <= maxCol; c++) {
-      const key = `${r},${c}`;
-      if (cells.has(key)) continue;
-
-      // Count how many of the 8 neighbors exist
-      let neighborCount = 0;
-      for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-          if (dr === 0 && dc === 0) continue;
-          const nKey = `${r + dr},${c + dc}`;
-          if (cells.has(nKey)) neighborCount++;
-        }
-      }
-
-      // Fill if surrounded by at least 6 out of 8 neighbors
-      if (neighborCount >= 6) {
-        toFill.push({ row: r, col: c });
-      }
-    }
-  }
-
-  // Add filled cells
-  for (const { row, col } of toFill) {
-    const key = `${row},${col}`;
-    cells.set(key, { row, col, prob: 0.70, t: 1, t_burn: 1 });
-  }
+  // Disabled frontend fill - backend now includes burning cells in predictions
+  // No fill logic needed here
 
   if (cells.size === 0) return { imageDataUrl: null, bbox: null };
 
