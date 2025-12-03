@@ -3,7 +3,7 @@
  */
 
 // Accept either VITE_API_URL or legacy VITE_BACKEND_URL and normalize (no trailing slash)
-const RAW_API_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+const RAW_API_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:10000';
 const API_BASE_URL = String(RAW_API_URL).replace(/\/+$/, '');
 // Configurable timeout (defaults to 180s to avoid long-run aborts)
 const DEFAULT_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? 180000);

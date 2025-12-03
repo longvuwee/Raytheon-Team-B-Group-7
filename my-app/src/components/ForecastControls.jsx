@@ -62,29 +62,6 @@ export default function ForecastControls({
           </select>
         </div>
       </div>
-      
-      <div className="forecast-legend">
-        <div className="legend-item">
-          <span className="color-dot vlow"></span>
-          <span>0–3h since initial burn</span>
-        </div>
-        <div className="legend-item">
-          <span className="color-dot low"></span>
-          <span>3–6h since initial burn</span>
-        </div>
-        <div className="legend-item">
-          <span className="color-dot medium"></span>
-          <span>6–12h since initial burn</span>
-        </div>
-        <div className="legend-item">
-          <span className="color-dot high"></span>
-          <span>12h+ since initial burn</span>
-        </div>
-        <div className="legend-item">
-          <span className="color-dot burned"></span>
-          <span>Burned Cells</span>
-        </div>
-      </div>
     </div>
   );
 }

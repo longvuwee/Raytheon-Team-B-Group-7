@@ -1,7 +1,7 @@
 import { buildPredictBody, markProcessed } from './fireInputsApi';
 import { supabase } from '../supabaseClient';
 
-const RAW_API_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+const RAW_API_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:10000';
 const API_BASE_URL = String(RAW_API_URL).replace(/\/+$/, '');
 
 async function requestPredict(body) {

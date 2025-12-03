@@ -136,6 +136,12 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
               const globeCanvas = globus.renderer.handler.canvas;
               const rect = globeCanvas.getBoundingClientRect();
               
+              // OpenGlobus event has clientX/clientY on the original browser event
+              const screenX = e.clientX ?? e.x ?? (rect.left + rect.width / 2);
+              const screenY = e.clientY ?? e.y ?? (rect.top + rect.height / 2);
+              
+              console.log("FiresLayer: Popup position", { screenX, screenY, hasClientX: !!e.clientX, hasX: !!e.x });
+              
               // Derive a display date from created_at (date only)
               const fireDate = clickedRow?.created_at
                 ? (new Date(clickedRow.created_at)).toISOString().split('T')[0]
@@ -150,8 +156,8 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
                 avgConfidence: nearbyPoints.reduce((sum, pt) => sum + (pt.confidence || 0), 0) / nearbyPoints.length,
                 clickedPoint: clickedRow || clickedPoint,
               }, {
-                x: e.clientX || (rect.left + rect.width / 2),
-                y: e.clientY || (rect.top + rect.height / 2)
+                x: screenX,
+                y: screenY
               });
             }
           };
