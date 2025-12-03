@@ -1527,22 +1527,28 @@
   border-color: var(--accent);
 }
 
+/* Forecast legend – styled like a soft glassy box */
 .forecast-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 12px;
+  margin-top: 12px;
+  padding: 0.55rem 0.65rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.11); /* matches weather-legend-body */
   font-size: 0.85rem;
 }
 
-.legend-item {
+/* Only affect legend items inside the forecast legend */
+.forecast-legend .legend-item {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.color-dot {
+/* Only affect dots inside the forecast legend */
+.forecast-legend .color-dot {
   width: 14px;
   height: 14px;
   border-radius: 50%;
@@ -1631,4 +1637,100 @@
   transform: scale(1.1);
   box-shadow: 0 3px 8px rgba(255, 107, 53, 0.4);
 }
+/* ===== Weather legend card + folder-style tabs ===== */
 
+/* Base card box used for Fire Spread and Weather legends */
+.legend-card {
+  margin-top: 0.4rem;
+  padding: 0.55rem 0.65rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.11);
+}
+
+
+/* Weather card tweaks: we still want the tabs + inner body to control padding */
+.legend-card--weather {
+  padding-top: 0.35rem; /* space for tabs */
+}
+
+
+/* ========= WEATHER LEGENDS (folder tabs) ========= */
+
+/* Container wraps tabs + box */
+.weather-legend-container {
+  margin-top: 0.75rem;
+}
+
+/* Tabs OUTSIDE the card box */
+.weather-legend-header {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: -4px; /* pulls tabs to touch the box */
+  padding-left: 2px;
+}
+
+/* Folder-style tabs */
+.weather-tab-btn {
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  border-radius: 8px 8px 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-bottom: none; /* merges with the box */
+  background: rgba(0, 0, 0, 0.11);
+  color: #ddd;
+  cursor: pointer;
+  text-align: center;
+}
+
+.weather-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.weather-tab-btn-active {
+  background: #7e6b5e63;
+  border-color: #eceae865;
+  color: #fff;
+  z-index: 1;
+}
+
+/* Weather legend content INSIDE the .legend-card box */
+.weather-legend-body {
+  border-radius: 0 8px 8px 8px; /* tabs sit on missing corner */
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.11);
+  padding: 0.55rem 0.65rem 0.65rem;
+}
+
+/* Legend items (shared styles) */
+.legend-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.legend-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+}
+
+/* Weather gradient colors */
+.precip-light  { background: #b3e5ff; }
+.precip-medium { background: #4fc3f7; }
+.precip-heavy  { background: #0277bd; }
+
+.temp-cold  { background: #94b3d6; }
+.temp-mild  { background: #d6d097; }
+.temp-hot   { background: #bd7a79; }
+
+.wind-low    { background: #e0d1e6; }
+.wind-medium { background: #c291c9; }
+.wind-strong { background: #6a1b9a; }
