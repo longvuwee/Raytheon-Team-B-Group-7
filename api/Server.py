@@ -1056,7 +1056,7 @@ def predict_spread_animation():
         return jsonify({"error": "cluster must be a non-empty array of points"}), 400
 
     # Simulation limits
-    MAX_CELLS = 5000
+    MAX_CELLS = 10000
     MAX_TIME_STEPS = 168
     time_steps = min(time_steps, MAX_TIME_STEPS)
 
