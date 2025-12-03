@@ -1119,6 +1119,7 @@ def predict_spread_animation():
             "T": 0,
             "T_burn": 1,  # ignition
             "last_prob": 1.0,
+            "exposure": 0.0,
         }
 
     # Use first cluster point as template for non-location features
@@ -1217,10 +1218,11 @@ def predict_spread_animation():
             print(f"⚠️  Hit MAX_CELLS limit ({MAX_CELLS}) at time step {t}")
             break
 
-        # First, add all currently burning cells to predictions_out for this timestep
-        # This ensures burning cells are visible (prevents hollow square artifact)
+        # First, add all currently burning or burned cells to predictions_out for this timestep
+        # This ensures fire area is visible (prevents hollow square artifact)
+        # Include T_burn == 1 (burning) and T_burn == 2 (burned out)
         for b_id, st in list(blocks.items()):
-            if st.get("T_burn") == 1:
+            if st.get("T_burn") in (1, 2):
                 predictions_out.append({
                     "time": t,
                     "lat": st["center_lat"],
@@ -1229,7 +1231,7 @@ def predict_spread_animation():
                     "block_id": b_id,
                 })
                 
-                # Also write burning cells to database
+                # Also write to database
                 if cur is not None:
                     try:
                         cur.execute(
@@ -1251,7 +1253,7 @@ def predict_spread_animation():
                              st.get("last_prob", 1.0), st.get("T", 0), st.get("T_burn", 1), st.get("exposure", 0.0))
                         )
                     except Exception as e:
-                        print(f"Warning: Failed to write burning cell to DB: {e}")
+                        print(f"Warning: Failed to write cell to DB: {e}")
 
         # Gather candidates: neighbors of currently burning cells
         candidates = {}
