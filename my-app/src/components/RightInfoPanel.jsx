@@ -1,110 +1,58 @@
 import CollapsiblePanel from "./CollapsiblePanel";
 
-export default function RightInfoPanel({
-  model,
-  setModel,
-  confidence = "—",
-  lastUpdated = "—",
-  onRunForecast = () => {},
-  forecastSettings = {},
-  setForecastSettings = () => {},
-}) {
-  const horizon = forecastSettings.horizon || "12 hours";
-  const display = forecastSettings.display || "Heatmap";
-  const threshold = forecastSettings.threshold ?? 75;
-
-  const updateSettings = (patch) =>
-    setForecastSettings({ ...forecastSettings, ...patch });
-
+export default function RightInfoPanel() {
   return (
     <CollapsiblePanel
       side="right"
-      title="Prediction Settings"
-      defaultOpen={true}
+      title="Fire Spread Legend"
+      defaultOpen={false}
     >
-      {/* === Model selection + info === */}
       <section className="panel-section">
-        <label className="field-label">Model</label>
-        <select
-          className="field-select"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-        >
-          <option>Neural Network</option>
-          <option>Random Forest</option>
-          <option>Logistic Regression</option>
-        </select>
-
-        <div className="field-box" style={{ marginTop: "0.5rem" }}>
-          <p className="panel-text">
-            <strong>Active Model:</strong> {model}
-          </p>
-          <p className="panel-text">
-            <strong>Confidence:</strong> {confidence}
-          </p>
-          <p className="panel-text">
-            <strong>Last Updated:</strong> {lastUpdated}
-          </p>
-          <p className="field-helper">
-            Three separate models are trained on the same wildfire dataset:
-            a Neural Network, Random Forest, and Logistic Regression. The
-            interface lets users switch between them to compare forecasts.
-          </p>
+        <div className="legend-items">
+          <div className="legend-item">
+            <div className="legend-color" style={{ 
+              backgroundColor: 'rgba(128, 128, 128, 0.8)', 
+              border: '2px solid #808080' 
+            }}></div>
+            <span className="legend-text">0-3h since initial burn</span>
+          </div>
+          
+          <div className="legend-item">
+            <div className="legend-color" style={{ 
+              backgroundColor: 'rgba(255, 200, 50, 0.8)', 
+              border: '2px solid #FFC832' 
+            }}></div>
+            <span className="legend-text">3-6h since initial burn</span>
+          </div>
+          
+          <div className="legend-item">
+            <div className="legend-color" style={{ 
+              backgroundColor: 'rgba(255, 150, 50, 0.8)', 
+              border: '2px solid #FF9632' 
+            }}></div>
+            <span className="legend-text">6-12h since initial burn</span>
+          </div>
+          
+          <div className="legend-item">
+            <div className="legend-color" style={{ 
+              backgroundColor: 'rgba(255, 50, 50, 0.8)', 
+              border: '2px solid #FF3232' 
+            }}></div>
+            <span className="legend-text">12h+ since initial burn</span>
+          </div>
+          
+          <div className="legend-item">
+            <div className="legend-color" style={{ 
+              backgroundColor: 'rgba(60, 60, 60, 0.8)', 
+              border: '2px solid #3C3C3C' 
+            }}></div>
+            <span className="legend-text">Burned Cells</span>
+          </div>
         </div>
-      </section>
-
-      {/* === Forecast controls === */}
-      <section className="panel-section">
-        <label className="field-label">Forecast Horizon</label>
-        <select
-          className="field-select"
-          value={horizon}
-          onChange={(e) => updateSettings({ horizon: e.target.value })}
-        >
-          <option>6 hours</option>
-          <option>12 hours</option>
-        </select>
-
-        <label className="field-label" style={{ marginTop: "0.75rem" }}>
-          Risk Display
-        </label>
-        <select
-          className="field-select"
-          value={display}
-          onChange={(e) => updateSettings({ display: e.target.value })}
-        >
-          <option>Heatmap</option>
-          <option>High-risk zones</option>
-          <option>All areas</option>
-        </select>
-
-        <label className="field-label" style={{ marginTop: "0.75rem" }}>
-          Risk Threshold
-        </label>
-        <div className="field-box">
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={threshold}
-            onChange={(e) =>
-              updateSettings({ threshold: Number(e.target.value) })
-            }
-          />
-          <div className="range-label">{threshold}%</div>
-        </div>
-        <p className="field-helper">
-          Controls which predicted risk levels are highlighted on the map.
+        
+        <p className="field-helper" style={{ marginTop: '1rem' }}>
+          This legend shows the fire spread progression over time, from initial burn to fully burned cells.
         </p>
-
-        {/* Debug-style summary so you can SEE changes */}
-        <p className="field-helper">
-          Current settings: {horizon}, {display}, threshold {threshold}%.
-        </p>
-
-        <button className="run-btn" onClick={onRunForecast}>
-          Run Forecast
-        </button>
       </section>
     </CollapsiblePanel>
   );

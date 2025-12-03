@@ -288,7 +288,10 @@
 }
 
 /* left vs right anchor */
-.collapsible.left  { left: 10px; }
+.collapsible.left  { 
+  left: 10px;
+  top: 52%; /* Positioned to avoid navigation controls */
+}
 .collapsible.right { 
   right: 10px; /* Keep normal distance from edge since zoom controls are now on left */
   width: 420px; /* Make it much wider */
@@ -805,6 +808,40 @@
   }
 }
 
+/* Legend styles for right panel */
+.legend-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.legend-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.legend-color {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.legend-text {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+}
+
 /* ===== CREATORS PAGE STYLES ===== */
 .creators-page {
   position: absolute;
@@ -1132,6 +1169,40 @@
 
 .icon-linkedin::before {
   content: "💼";
+}
+
+/* Legend styles for right panel */
+.legend-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.legend-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.legend-color {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.legend-text {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 /* Nudge floating controls below header */
