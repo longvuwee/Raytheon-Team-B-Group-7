@@ -132,7 +132,6 @@ export function buildPredictBody(row, model = 'random_forest') {
     month: safe(row.month),
   };
 }
-// Duplicate import removed; using unified root supabaseClient.
 
 export async function fetchUnprocessedInputs(limit = 200) {
   const { data, error } = await supabase

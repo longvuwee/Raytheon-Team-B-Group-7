@@ -13,7 +13,7 @@ function findNearbyPoints(centerPoint, allPoints, radiusDegrees) {
   });
 }
 
-export default function FiresLayer({ globus, startDate, endDate, onClusterClick }) {
+export default function FiresLayer({ globus, startDate, endDate, confidenceThreshold = 80, onClusterClick }) {
   useEffect(() => {
     console.log("FiresLayer: useEffect triggered", { globus: !!globus, startDate, endDate });
     if (!globus) return;
@@ -57,11 +57,11 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
           return;
         }
 
-        // Build date filter using created_at and apply confidence=100
+        // Build date filter using created_at and apply confidence threshold
         const startISO = new Date(startDate).toISOString().replace('T', ' ').substring(0, 19);
         const endISO = new Date(endDate).toISOString().replace('T', ' ').substring(0, 19);
-        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fire_inputs?select=latitude,longitude,brightness,bright_t31,confidence,daynight,elevation,slope,aspect,temp,humidity,wind_speed,precip,month,created_at&confidence=gte.80&created_at=gte.${startISO}&created_at=lt.${endISO}`;
-        console.log("FiresLayer: Fetching fire_inputs (confidence>=80, date-filtered) from", url);
+        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fire_inputs?select=latitude,longitude,brightness,bright_t31,confidence,daynight,elevation,slope,aspect,temp,humidity,wind_speed,precip,month,created_at&confidence=gte.${confidenceThreshold}&created_at=gte.${startISO}&created_at=lt.${endISO}`;
+        console.log(`FiresLayer: Fetching fire_inputs (confidence>=${confidenceThreshold}, date-filtered) from`, url);
         const res = await fetch(url, {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -85,7 +85,7 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
 
         // Keep only clustered points (remove isolated points)
         const clustered = filterClusteredOutliers(allPoints, 5, 4);
-        console.log(`FiresLayer: Loaded ${allPoints.length} fire_inputs points (conf>=80, date-filtered), keeping ${clustered.length} clustered`);
+        console.log(`FiresLayer: Loaded ${allPoints.length} fire_inputs points (conf>=${confidenceThreshold}, date-filtered), keeping ${clustered.length} clustered`);
 
         // Store all points with their data for cluster detection
         const pointsWithData = clustered.map(p => ({ ...p, ...rows.find(r => 
@@ -196,7 +196,7 @@ export default function FiresLayer({ globus, startDate, endDate, onClusterClick 
         console.warn("FiresLayer: error removing layer", e);
       }
     };
-  }, [globus, startDate, endDate, onClusterClick]);
+  }, [globus, startDate, endDate, confidenceThreshold, onClusterClick]);
 
   return null;
 }

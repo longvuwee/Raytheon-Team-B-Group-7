@@ -24,7 +24,6 @@ import SearchBar from "./components/SearchBar";
 import ClusterPopup from "./components/ClusterPopup";
 import ForecastControls from "./components/ForecastControls";
 import FireSpreadLayer from "./components/FireSpreadLayer";
-// FireInputsProcessor removed
 
 /* ---- Hooks ---- */
 import useTimeline from "./hooks/useTimeline";
@@ -32,7 +31,6 @@ import useTimeline from "./hooks/useTimeline";
 /* ---- Utils ---- */
 import { streamSpreadForecast } from "./utils/forecastApi";
 import { fetchRecentFireInputs, fetchNearestFireInput } from "./api/fireInputsApi";
-// removed unused selectAndPredictNeighborhood
 import makeForecastHeatmap from "./utils/makeForecastHeatmap";
 import makeForecastPixelGrid, { snapToGrid } from "./utils/makeForecastPixelGrid";
 import makeInitialStateRaster from "./utils/makeInitialStateRaster";
@@ -68,6 +66,8 @@ function App() {
     d.setHours(23, 59, 59, 999);
     return d;
   });
+  // Confidence threshold for map datapoints (hotspots)
+  const [confidenceThreshold, setConfidenceThreshold] = useState(80);
 
   // Visualization mode + layer visibility for the left panel
   const [vizMode, setVizMode] = useState("KDE Heatmap");
@@ -101,7 +101,7 @@ function App() {
   // Handle hash-based navigation
   useEffect(() => {
     const handleHashChange = () => {
-      const hash = window.location.hash.slice(1); // Remove the '#'
+      const hash = window.location.hash.slice(1); 
 
       if (hash === "/creators") {
         setCurrentView("creators");
@@ -174,7 +174,6 @@ function App() {
       // --- Initial state raster from cluster points ---
       let initRaster = null;
       try {
-        // Remove any previous initial-state overlay
         const globus = globeRef.current && globeRef.current.getGlobus && globeRef.current.getGlobus();
         if (initialStateLayerRef.current && globus?.planet) {
           try { globus.planet.removeLayer(initialStateLayerRef.current); } catch (e) { void e; }
@@ -409,10 +408,6 @@ function App() {
     }
   };
 
-  // Removed unused handleRunPointPredictionNeighbors
-
-
-
   // Animation playback control
   useEffect(() => {
     if (!isPlaying || !forecastPredictions || forecastPredictions.length === 0) {
@@ -524,6 +519,7 @@ function App() {
                     globeRef={globeRef}
                     startDate={selectedDate}
                     endDate={endDate}
+                    confidenceThreshold={confidenceThreshold}
                   />
                 )}
 
@@ -537,6 +533,7 @@ function App() {
                     }
                     startDate={selectedDate}
                     endDate={endDate}
+                    confidenceThreshold={confidenceThreshold}
                     onClusterClick={handleClusterClick}
                   />
                 )}
@@ -546,6 +543,7 @@ function App() {
                     globeRef={globeRef}
                     predictions={forecastPredictions}
                     currentFrame={forecastFrame}
+                    showBBox={true}
                   />
                 )}
               </>
@@ -591,14 +589,14 @@ function App() {
               <LeftInfoPanel
                 baseMap={base}
                 onBaseMapChange={handleBaseChange}
-                vizMode={vizMode}
-                setVizMode={setVizMode}
                 layers={layers}
                 setLayers={setLayers}
                 startDate={startDate}
                 endDate={endDate}
                 onStartDateChange={setStartDate}
                 onEndDateChange={setEndDate}
+                confidenceThreshold={confidenceThreshold}
+                onConfidenceChange={setConfidenceThreshold}
               />
 
               <LayerPanel />
@@ -635,8 +633,6 @@ function App() {
           console.log("Location selected:", location);
         }}
       />
-
-      {/* Batch fire_inputs processor removed per request */}
 
       {statusMessage && (
         <div

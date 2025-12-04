@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { GeoImage, LonLat } from "@openglobus/og";
 import makeDensityHeatmap from "../utils/makeDensityHeatMap";
 
-export default function HeatmapOverlayLayer({ globeRef, startDate, endDate }) {
+export default function HeatmapOverlayLayer({ globeRef, startDate, endDate, confidenceThreshold = 80 }) {
   useEffect(() => {
     console.log("HeatmapOverlay: useEffect triggered", { 
       hasGlobeRef: !!globeRef?.current,
@@ -30,11 +30,11 @@ export default function HeatmapOverlayLayer({ globeRef, startDate, endDate }) {
           return;
         }
 
-        // Apply date filter using created_at with confidence = 100
+        // Apply date filter using created_at with confidence threshold
         const startISO = new Date(startDate).toISOString().replace('T', ' ').substring(0, 19);
         const endISO = new Date(endDate).toISOString().replace('T', ' ').substring(0, 19);
-        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fire_inputs?select=latitude,longitude,confidence,created_at&confidence=gte.90&created_at=gte.${startISO}&created_at=lt.${endISO}`;
-        console.log("HeatmapOverlay: Fetching fire_inputs (confidence>=90, date-filtered) from", url);
+        const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/fire_inputs?select=latitude,longitude,confidence,created_at&confidence=gte.${confidenceThreshold}&created_at=gte.${startISO}&created_at=lt.${endISO}`;
+        console.log(`HeatmapOverlay: Fetching fire_inputs (confidence>=${confidenceThreshold}, date-filtered) from`, url);
         const res = await fetch(url, {
           headers: {
             apikey: SUPABASE_ANON_KEY,
@@ -56,7 +56,7 @@ export default function HeatmapOverlayLayer({ globeRef, startDate, endDate }) {
           })
           .filter(Boolean);
         
-        console.log(`HeatmapOverlay: Loaded ${pts.length} fire_inputs points (conf>=90) for ${startISO}`);
+        console.log(`HeatmapOverlay: Loaded ${pts.length} fire_inputs points (conf>=${confidenceThreshold}) for ${startISO}`);
         if (!pts.length || cancelled) return;
 
 
@@ -103,7 +103,7 @@ export default function HeatmapOverlayLayer({ globeRef, startDate, endDate }) {
         globus.planet.removeLayer(heatmapLayer);
       }
     };
-  }, [globeRef, startDate, endDate]);
+  }, [globeRef, startDate, endDate, confidenceThreshold]);
 
   return null;
 }

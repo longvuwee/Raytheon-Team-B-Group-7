@@ -12,9 +12,6 @@ export default function LeftInfoPanel({
   baseMap = "OSM",
   onBaseMapChange = () => {},
 
-  vizMode = "KDE Heatmap",
-  setVizMode = () => {},
-
   layers = {
     "Predicted Spread": true,
     "MODIS Hotspots": true,
@@ -25,6 +22,8 @@ export default function LeftInfoPanel({
   endDate = new Date(),
   onStartDateChange = () => {},
   onEndDateChange = () => {},
+  confidenceThreshold = 80,
+  onConfidenceChange = () => {},
 }) {
   const handleLayerChange = (key) => {
     setLayers({
@@ -131,6 +130,24 @@ export default function LeftInfoPanel({
           Select a date range to visualize fire data. Use the timeline slider to
           navigate hours within this range.
         </p>
+        <div className="field-box" style={{ marginTop: 8 }}>
+          <label className="field-label" htmlFor="confidence-threshold">
+            Confidence ≥ {confidenceThreshold}%
+          </label>
+          <input
+            id="confidence-threshold"
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            value={confidenceThreshold}
+            onChange={(e) => onConfidenceChange(Number(e.target.value))}
+            style={{ width: "100%" }}
+          />
+        </div>
+        <p className="field-helper">
+          Adjusts the minimum detection confidence for points and heatmap. Move right to show only higher-certainty hotspots.
+        </p>
       </section>
 
       {/* === Base Map as OSM / SAT buttons === */}
@@ -153,23 +170,6 @@ export default function LeftInfoPanel({
         </p>
       </section>
 
-      {/* === Visualization Mode === */}
-      <section className="panel-section">
-        <label className="field-label">Visualization Mode</label>
-        <select
-          className="field-select"
-          value={vizMode}
-          onChange={(e) => setVizMode(e.target.value)}
-        >
-          <option value="KDE Heatmap">KDE Heatmap</option>
-          <option value="Pinpoints">Pinpoints</option>
-          <option value="Scaled Points">Scaled Points</option>
-        </select>
-        <p className="field-helper">
-          Controls how predicted fire risk is represented visually.
-        </p>
-      </section>
-
       {/* === Wildfire Layer Toggles === */}
       <section className="panel-section">
         <label className="field-label">Map Layers</label>
@@ -181,7 +181,7 @@ export default function LeftInfoPanel({
                 checked={layers[key]}
                 onChange={() => handleLayerChange(key)}
               />
-              <span>{key}</span>
+              <span>{key === "Predicted Spread" ? "KDE Heatmap" : key}</span>
             </label>
           ))}
         </div>
